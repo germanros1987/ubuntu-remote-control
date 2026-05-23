@@ -241,6 +241,13 @@ impl VncBackend for X11Backend {
             "60",
             "-SecurityTypes",
             "None",
+            // Failed handshakes (e.g. Apple Screen Sharing protocol mismatch) otherwise
+            // blacklist the source for minutes and reject future clients with
+            // "Too many security failures". Tailnet + TLS already gate access.
+            "-BlacklistThreshold",
+            "1000000",
+            "-BlacklistTimeout",
+            "1",
         ]);
         let _ = password_file; // kept for API compat; auth is TLS + localhost bind
 
