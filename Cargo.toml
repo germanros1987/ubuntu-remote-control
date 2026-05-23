@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/urc-common",
+    "crates/urc-agent",
+    "crates/urc-coordinator",
+    "crates/urc-client",
+    "crates/urc-files",
+]
+default-members = [
+    "crates/urc-common",
+    "crates/urc-agent",
+    "crates/urc-coordinator",
+    "crates/urc-client",
+    "crates/urc-files",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/ubuntu-remote-control/ubuntu-remote-control"
+
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws", "macros"] }
+base64 = "0.22"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+http = "1"
+clap = { version = "4", features = ["derive", "env"] }
+futures-util = "0.3"
+hex = "0.4"
+rand = "0.8"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+urc-common = { path = "crates/urc-common" }

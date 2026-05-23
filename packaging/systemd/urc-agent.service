@@ -1,0 +1,23 @@
+[Unit]
+Description=Ubuntu Remote Control Agent
+Documentation=https://github.com/ubuntu-remote-control/ubuntu-remote-control
+After=network-online.target display-manager.service
+Wants=network-online.target display-manager.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=URC_SYSTEMD=1
+Environment=URC_COORDINATOR_HOST=127.0.0.1
+Environment=URC_COORDINATOR_PORT=21150
+ExecStartPre=/usr/libexec/urc/wait-for-session.sh
+ExecStart=/usr/local/bin/urc-agent --config /etc/urc/agent.toml
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+KillMode=control-group
+RuntimeDirectory=urc
+StateDirectory=urc
+
+[Install]
+WantedBy=multi-user.target

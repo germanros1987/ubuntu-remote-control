@@ -1,0 +1,18 @@
+[Unit]
+Description=Ubuntu Remote Control Coordinator
+Documentation=https://github.com/ubuntu-remote-control/ubuntu-remote-control
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/urc/coordinator.env
+ExecStart=/usr/local/bin/urc-coordinator --bind 0.0.0.0 --port 21150 --shared-secret ${URC_SHARED_SECRET:-changeme}
+Restart=always
+RestartSec=10
+TimeoutStartSec=60
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

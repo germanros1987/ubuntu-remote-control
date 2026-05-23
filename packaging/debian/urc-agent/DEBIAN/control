@@ -1,0 +1,11 @@
+Package: urc-agent
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: tigervnc-standalone-server, ca-certificates
+Recommends: tailscale
+Maintainer: URC <urc@localhost>
+Description: Ubuntu Remote Control agent
+ Session-aware remote desktop agent with encrypted tunnel.
+ Does not install Xorg or a desktop environment.

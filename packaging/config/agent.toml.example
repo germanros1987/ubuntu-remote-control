@@ -1,0 +1,17 @@
+# /etc/urc/agent.toml
+
+host_id = "my-workstation"
+token = "changeme"
+
+coordinator_url = "ws://your-vps.example.com:21150/ws/agent"
+listen_tls_port = 15900
+vnc_password_file = "/etc/urc/vncpasswd"
+files_root = "/home"
+
+# encryption = "tls"  # or use --insecure CLI flag
+
+[tailscale]
+enabled = false
+prefer_direct = true
+
+# backend = "auto"  # auto | x11 | gnome | wayvnc

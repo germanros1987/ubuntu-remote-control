@@ -1,0 +1,9 @@
+/target/
+**/*.rs.bk
+.DS_Store
+*.deb
+*.dmg
+*.AppImage
+dist/
+node_modules/
+client/ui/dist/

@@ -1,0 +1,25 @@
+[package]
+name = "urc-coordinator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ubuntu Remote Control coordinator — rendezvous and relay"
+
+[[bin]]
+name = "urc-coordinator"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+bytes.workspace = true
+clap.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+urc-common.workspace = true
+uuid.workspace = true

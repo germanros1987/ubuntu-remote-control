@@ -1,0 +1,7 @@
+[Unit]
+Description=URC coordinator health check (oneshot)
+After=urc-coordinator.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/urc/urc-coordinator-health-check.sh

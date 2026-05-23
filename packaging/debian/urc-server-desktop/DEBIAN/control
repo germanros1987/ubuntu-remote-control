@@ -1,0 +1,9 @@
+Package: urc-server-desktop
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: urc-agent, xserver-xorg, xserver-xorg-video-all, lightdm, ubuntu-desktop-minimal, gnome-remote-desktop
+Maintainer: URC <urc@localhost>
+Description: Ubuntu Remote Control — headless desktop bootstrap
+ Installs minimal GPU desktop stack for servers without an existing GUI.

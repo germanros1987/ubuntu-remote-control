@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart URC agent on graphical login
+After=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl try-restart urc-agent.service

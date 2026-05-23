@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for new login sessions (restart URC agent)
+After=display-manager.service
+
+[Path]
+PathChanged=/run/systemd/sessions
+PathExists=/run/systemd/sessions
+
+[Install]
+WantedBy=multi-user.target

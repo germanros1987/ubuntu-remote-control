@@ -1,0 +1,7 @@
+[Unit]
+Description=URC agent health check (oneshot)
+After=urc-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/urc/urc-health-check.sh
