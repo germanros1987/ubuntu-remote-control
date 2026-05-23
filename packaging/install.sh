@@ -410,8 +410,24 @@ build_and_install_binaries() {
   install_file 755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
 }
 
+require_screen_vnc_server() {
+  if command -v x0tigervncserver >/dev/null 2>&1 || command -v x0vncserver >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "ERROR: VNC screen server missing after install (expected x0tigervncserver)." >&2
+  echo "  Try: apt install tigervnc-scraping-server tigervnc-common" >&2
+  exit 1
+}
+
 install_agent_deps() {
-  apt-get install -y -qq tigervnc-standalone-server tigervnc-common
+  echo "==> Installing VNC (screen sharing on your desktop)"
+  # Ubuntu 22.04+ renamed x0vncserver → x0tigervncserver (tigervnc-scraping-server).
+  apt-get install -y -qq \
+    tigervnc-scraping-server \
+    tigervnc-standalone-server \
+    tigervnc-common \
+    tigervnc-tools
+  require_screen_vnc_server
 }
 
 install_desktop_deps() {
@@ -451,8 +467,8 @@ setup_vnc_password() {
   install -d -m755 /etc/urc
   vncpwd="$(command -v vncpasswd || command -v tigervncpasswd || true)"
   if [[ -z "$vncpwd" ]]; then
-    echo "Note: install tigervnc, then: printf 'PASSWORD\\n' | vncpasswd -f > /etc/urc/vncpasswd" >&2
-    return
+    echo "ERROR: vncpasswd not found (tigervnc-common should provide it)." >&2
+    exit 1
   fi
   if printf '%s\n' "$vnc_pass" | "$vncpwd" -f > /etc/urc/vncpasswd 2>/dev/null; then
     chmod 600 /etc/urc/vncpasswd
@@ -511,6 +527,21 @@ enable_agent() {
   systemctl enable --now urc-agent.service
   systemctl enable --now urc-agent-health.timer
   systemctl enable urc-agent-login.path
+}
+
+wait_for_agent_vnc() {
+  echo "==> Waiting for encrypted VNC on port 15900 (needs a logged-in desktop)…"
+  local i
+  for i in $(seq 1 45); do
+    if ss -tlnp 2>/dev/null | grep -qE ':15900[[:space:]]'; then
+      echo "==> Remote desktop port 15900 is ready"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "NOTE: Port 15900 is not listening yet." >&2
+  echo "  Log in to the desktop on this PC, then: sudo systemctl restart urc-agent" >&2
+  return 1
 }
 
 enable_coordinator() {
@@ -648,6 +679,7 @@ case "$ROLE" in
     install_libexec
     install_systemd_units
     enable_agent
+    wait_for_agent_vnc || true
     print_finish_agent
     ;;
   client)

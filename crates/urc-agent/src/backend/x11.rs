@@ -56,13 +56,9 @@ impl VncBackend for X11Backend {
     }
 
     async fn start(&self) -> Result<()> {
-        if which_x0vncserver().is_none() {
-            bail!(
-                "x0vncserver not found. Install: apt install tigervnc-standalone-server"
-            );
-        }
+        let vnc_bin = super::vnc_bin::screen_share_vnc_server()?;
 
-        let mut cmd = Command::new("x0vncserver");
+        let mut cmd = Command::new(&vnc_bin);
         cmd.arg("-display")
             .arg(&self.display)
             .arg("-rfbport")
@@ -89,8 +85,8 @@ impl VncBackend for X11Backend {
 
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let child = cmd.spawn().context("spawn x0vncserver")?;
-        info!(display = %self.display, port = LOCAL_PORT, "started x0vncserver");
+        let child = cmd.spawn().context("spawn screen VNC server")?;
+        info!(display = %self.display, port = LOCAL_PORT, bin = %vnc_bin, "started screen VNC");
 
         *self.child.lock().await = Some(child);
 
@@ -101,7 +97,7 @@ impl VncBackend for X11Backend {
             }
         }
 
-        bail!("x0vncserver failed health check on port {LOCAL_PORT}")
+        bail!("screen VNC server failed health check on port {LOCAL_PORT}")
     }
 
     async fn stop(&self) -> Result<()> {
@@ -118,12 +114,3 @@ impl VncBackend for X11Backend {
     }
 }
 
-fn which_x0vncserver() -> Option<String> {
-    std::process::Command::new("which")
-        .arg("x0vncserver")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-}
