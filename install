@@ -44,7 +44,7 @@ fi
 cleanup() { [[ -n "${URC_KEEP_WORKDIR:-}" ]] || rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
-echo "==> Ubuntu Remote Control (installer tigervnc-symlink)"
+echo "==> Ubuntu Remote Control (installer ts-preflight)"
 
 GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
 BR="${URC_BRANCH:-main}"
