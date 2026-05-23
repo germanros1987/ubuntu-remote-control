@@ -120,6 +120,13 @@ if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
       url="https://github.com/${GH}/releases/download/${tag}/${PREBUILT_ASSET}.tar.gz"
       if curl -fsSL "$url" 2>/dev/null | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
         echo "==> Using prebuilt binaries (${PREBUILT_ASSET} from ${tag})"
+        # Linux agent: also fetch source so packaging/install.sh can rebuild urc-agent.
+        if [[ "$(uname -s)" == "Linux" ]] && [[ "${1:-}" == "--role" && "${2:-}" == "agent" ]]; then
+          SRC_URL="https://github.com/${GH}/archive/${GIT_SHA:-${BR}}.tar.gz"
+          echo "==> Downloading source (${GIT_SHA:0:7})"
+          curl -fsSL "$SRC_URL" | tar xz -C "$WORKDIR" --strip-components=1
+          curl -fsSL "$url" | tar xz -C "$WORKDIR/bin" 2>/dev/null || true
+        fi
         export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
         if [[ "$(uname -s)" == "Darwin" ]]; then
           exec bash "$WORKDIR/packaging/install-mac-client.sh" "$@"
