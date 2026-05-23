@@ -136,7 +136,17 @@ async fn connect_host(
             );
         }
         info!(name = %peer.name, ip = %peer.ipv4, "connecting via Tailscale");
+        println!(
+            "Checking {} ({}) on port {}…",
+            peer.name, peer.ipv4, DEFAULT_TLS_LISTEN_PORT
+        );
+        tls_forward::preflight_remote_vnc(&peer.ipv4, DEFAULT_TLS_LISTEN_PORT).await?;
         tls_forward::spawn_tls_forward(&peer.ipv4, DEFAULT_TLS_LISTEN_PORT, local_port).await?;
+        tls_forward::probe_local_vnc(local_port).await?;
+        println!(
+            "Tunnel ready: 127.0.0.1:{local_port} → {} ({})",
+            peer.name, peer.ipv4
+        );
         launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file).await?;
         return Ok(());
     }
@@ -209,10 +219,20 @@ async fn launch_viewer_macos(local_port: u16, password: Option<&str>) -> Result<
         println!("VNC password copied to clipboard — paste if Screen Sharing prompts.");
     }
     info!(%url, "opening built-in Screen Sharing");
-    Command::new("open")
+    // Tunnel is verified before we get here; brief pause so Screen Sharing does not race the listener.
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let status = Command::new("open")
+        .arg("-a")
+        .arg("Screen Sharing")
         .arg(&url)
         .status()
         .context("open Screen Sharing (vnc://)")?;
+    if !status.success() {
+        Command::new("open")
+            .arg(&url)
+            .status()
+            .context("open vnc:// URL")?;
+    }
     println!("Remote desktop opened in Screen Sharing.");
     println!("Press Ctrl+C here when you are done (keeps the tunnel up).");
     tokio::signal::ctrl_c()
