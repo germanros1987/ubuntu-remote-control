@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -12,12 +13,93 @@ pub struct TailscalePeer {
     pub online: bool,
 }
 
+/// Resolve the `tailscale` CLI (macOS App Store builds are not always on PATH).
+pub fn tailscale_bin() -> Result<PathBuf> {
+    for key in ["URC_TAILSCALE_BIN", "TAILSCALE_BIN"] {
+        if let Ok(p) = std::env::var(key) {
+            let path = PathBuf::from(p.trim());
+            if path.as_os_str().is_empty() {
+                continue;
+            }
+            if is_executable(&path) {
+                return Ok(path);
+            }
+            anyhow::bail!("{key} is set but not executable: {}", path.display());
+        }
+    }
+
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in path.split(':').filter(|d| !d.is_empty()) {
+            let candidate = Path::new(dir).join("tailscale");
+            if is_executable(&candidate) {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    for candidate in default_candidates() {
+        if is_executable(&candidate) {
+            return Ok(candidate);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    let hint = "Install Tailscale from https://tailscale.com/download/mac (menu bar app), \
+or: sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale";
+    #[cfg(not(target_os = "macos"))]
+    let hint = "Install Tailscale: https://tailscale.com/download";
+
+    anyhow::bail!(
+        "tailscale CLI not found. {hint}\n\
+         Or set URC_TAILSCALE_BIN to the full path of the tailscale binary."
+    );
+}
+
+fn default_candidates() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/local/bin/tailscale"),
+        PathBuf::from("/opt/homebrew/bin/tailscale"),
+        PathBuf::from("/usr/bin/tailscale"),
+    ];
+    #[cfg(target_os = "macos")]
+    {
+        out.push(PathBuf::from(
+            "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        ));
+    }
+    out
+}
+
+fn is_executable(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 /// Run `tailscale status --json` and parse stdout.
 pub fn status_json() -> Result<Value> {
-    let output = Command::new("tailscale")
+    let bin = tailscale_bin()?;
+    let output = Command::new(&bin)
         .args(["status", "--json"])
         .output()
-        .context("run tailscale status — is Tailscale installed and logged in?")?;
+        .with_context(|| {
+            format!(
+                "run {} status — is Tailscale installed and logged in?",
+                bin.display()
+            )
+        })?;
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!("tailscale status failed: {err}");
@@ -111,4 +193,14 @@ fn peer_ipv4(peer: &Value) -> Option<String> {
                 }
             })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_name_strips_tailnet_suffix() {
+        assert_eq!(short_name("my-pc.tailnet.ts.net."), "my-pc");
+    }
 }

@@ -71,6 +71,22 @@ if ! command -v tailscale >/dev/null 2>&1; then
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
 
+# App Store / .app installs often lack a PATH-visible CLI.
+ensure_tailscale_cli() {
+  if command -v tailscale >/dev/null 2>&1; then
+    return 0
+  fi
+  local app="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  if [[ -x "$app" ]]; then
+    ln -sf "$app" "$INSTALL_PREFIX/bin/tailscale"
+    echo "==> Linked Tailscale CLI → $INSTALL_PREFIX/bin/tailscale"
+    return 0
+  fi
+  echo "WARN: Tailscale CLI not found. Install from https://tailscale.com/download/mac" >&2
+  return 1
+}
+ensure_tailscale_cli || true
+
 ts_user="${SUDO_USER:-$USER}"
 hn="$(hostname -s)"
 
@@ -88,12 +104,19 @@ else
 fi
 sudo -u "$ts_user" tailscale set --hostname="$hn" 2>/dev/null || true
 
+TS_BIN=""
+if command -v tailscale >/dev/null 2>&1; then
+  TS_BIN="$(command -v tailscale)"
+elif [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
+  TS_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+fi
 TOKEN="$(openssl rand -hex 24)"
-cat > "$CLIENT_ENV" <<EOF
-URC_COORDINATOR=$COORDINATOR_URL
-URC_TOKEN=$TOKEN
-URC_DEFAULT_HOST=
-EOF
+{
+  echo "URC_COORDINATOR=$COORDINATOR_URL"
+  echo "URC_TOKEN=$TOKEN"
+  echo "URC_DEFAULT_HOST="
+  [[ -n "$TS_BIN" ]] && echo "URC_TAILSCALE_BIN=$TS_BIN"
+} > "$CLIENT_ENV"
 chmod 644 "$CLIENT_ENV"
 
 echo ""

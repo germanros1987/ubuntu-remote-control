@@ -13,6 +13,9 @@ load_client_env() {
     source "$CLIENT_ENV"
     set +a
   fi
+  if [[ -z "${URC_TAILSCALE_BIN:-}" ]] && [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
+    export URC_TAILSCALE_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  fi
 }
 
 # macOS /bin/bash 3.2: "${arr[@]}" on an empty array fails with set -u.
