@@ -68,8 +68,23 @@ ts_user="${SUDO_USER:-$USER}"
 
 # Apple Screen Sharing rejects TigerVNC's RFB handshake ("software ... incompatible").
 # Install TigerVNC Viewer for matching client; Screen Sharing remains as fallback.
+#
+# The Homebrew cask renamed the app from "TigerVNC Viewer.app" (<=1.15) to
+# "TigerVNC.app" (>=1.16), so detection has to glob.
+find_tigervnc_app() {
+  local app
+  for app in /Applications/TigerVNC*.app; do
+    [[ -d "$app" ]] || continue
+    if [[ -x "$app/Contents/MacOS/vncviewer" ]]; then
+      echo "$app/Contents/MacOS/vncviewer"
+      return 0
+    fi
+  done
+  return 1
+}
+
 install_tigervnc_viewer() {
-  if [[ -d "/Applications/TigerVNC Viewer.app" ]]; then
+  if find_tigervnc_app >/dev/null; then
     echo "==> TigerVNC Viewer already installed"
     return 0
   fi
@@ -86,10 +101,20 @@ install_tigervnc_viewer() {
     echo "WARN: TigerVNC Viewer install failed; client will fall back to Screen Sharing" >&2
     return 1
   fi
-  # Strip Gatekeeper quarantine so first launch does not block.
-  xattr -dr com.apple.quarantine "/Applications/TigerVNC Viewer.app" 2>/dev/null || true
+  return 0
 }
 install_tigervnc_viewer || true
+
+# Symlink the actual TigerVNC binary into PATH so `which vncviewer` finds it and
+# urc-client routes through the generic VNC launcher instead of Apple Screen Sharing.
+VNC_BIN="$(find_tigervnc_app || true)"
+if [[ -n "$VNC_BIN" ]]; then
+  ln -sf "$VNC_BIN" "$INSTALL_PREFIX/bin/vncviewer"
+  echo "==> Linked TigerVNC Viewer -> $INSTALL_PREFIX/bin/vncviewer"
+  # Strip Gatekeeper quarantine so first launch does not block.
+  app_dir="${VNC_BIN%/Contents/MacOS/vncviewer}"
+  xattr -dr com.apple.quarantine "$app_dir" 2>/dev/null || true
+fi
 
 echo "==> Installing Tailscale"
 if ! command -v tailscale >/dev/null 2>&1; then
@@ -167,7 +192,7 @@ echo "  Client ready"
 echo "============================================"
 echo ""
 echo "  Config: $CLIENT_ENV"
-if [[ -d "/Applications/TigerVNC Viewer.app" ]]; then
+if [[ -x "$INSTALL_PREFIX/bin/vncviewer" ]] || find_tigervnc_app >/dev/null; then
   echo "  Viewer: TigerVNC Viewer (opens automatically)"
 else
   echo "  Viewer: built-in Screen Sharing (TigerVNC Viewer install failed — may hit compatibility errors)"

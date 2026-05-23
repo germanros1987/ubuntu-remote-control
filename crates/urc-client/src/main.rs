@@ -161,6 +161,23 @@ async fn connect_host(
     );
 }
 
+/// Find any TigerVNC.app under /Applications regardless of version-specific naming
+/// ("TigerVNC Viewer.app" up to 1.15; "TigerVNC.app" from 1.16 onward).
+fn glob_tigervnc_app() -> Option<String> {
+    let dir = std::fs::read_dir("/Applications").ok()?;
+    for entry in dir.flatten() {
+        let name = entry.file_name();
+        let s = name.to_string_lossy();
+        if s.starts_with("TigerVNC") && s.ends_with(".app") {
+            let bin = entry.path().join("Contents/MacOS/vncviewer");
+            if bin.is_file() {
+                return Some(bin.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
+}
+
 fn find_vncviewer() -> String {
     if let Ok(path) = std::process::Command::new("which").arg("vncviewer").output() {
         if path.status.success() {
@@ -171,13 +188,17 @@ fn find_vncviewer() -> String {
         }
     }
     for candidate in [
-        "/Applications/TigerVNC Viewer.app/Contents/MacOS/vncviewer",
-        "/opt/homebrew/bin/vncviewer",
         "/usr/local/bin/vncviewer",
+        "/opt/homebrew/bin/vncviewer",
     ] {
-        if std::path::Path::new(candidate).is_file() {
+        if std::path::Path::new(candidate).is_file()
+            || std::path::Path::new(candidate).is_symlink()
+        {
             return candidate.to_string();
         }
+    }
+    if let Some(p) = glob_tigervnc_app() {
+        return p;
     }
     "vncviewer".to_string()
 }
@@ -270,10 +291,15 @@ async fn launch_viewer(
 
     if std::env::consts::OS == "macos" && viewer == "vncviewer" {
         // Apple Screen Sharing rejects TigerVNC's RFB handshake on many setups.
-        // Prefer TigerVNC Viewer when present; fall through to generic launcher (find_vncviewer
-        // already returns the /Applications path). Screen Sharing stays as fallback.
-        let tigervnc = "/Applications/TigerVNC Viewer.app/Contents/MacOS/vncviewer";
-        if !std::path::Path::new(tigervnc).is_file() {
+        // Prefer TigerVNC Viewer when present; fall through to generic launcher.
+        // The Homebrew cask renamed the app from "TigerVNC Viewer.app" (<=1.15) to
+        // "TigerVNC.app" (>=1.16), and the installer symlinks the binary to
+        // /usr/local/bin/vncviewer so `which vncviewer` resolves it.
+        let tigervnc_present = ["/usr/local/bin/vncviewer", "/opt/homebrew/bin/vncviewer"]
+            .iter()
+            .any(|p| std::path::Path::new(p).is_file() || std::path::Path::new(p).is_symlink())
+            || glob_tigervnc_app().is_some();
+        if !tigervnc_present {
             return launch_viewer_macos(local_port, vnc_password.as_deref()).await;
         }
     }
