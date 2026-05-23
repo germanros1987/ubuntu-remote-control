@@ -71,19 +71,37 @@ if ! command -v tailscale >/dev/null 2>&1; then
   curl -fsSL https://tailscale.com/install.sh | sh
 fi
 
-# App Store / .app installs often lack a PATH-visible CLI.
+# App Store CLI crashes when invoked via symlink — install a small wrapper instead.
+MACOS_TS_APP="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+MACOS_TS_CLI="$INSTALL_PREFIX/bin/tailscale"
+
+tailscale_cli_works() {
+  command -v tailscale >/dev/null 2>&1 \
+    && tailscale version >/dev/null 2>&1
+}
+
+install_macos_tailscale_wrapper() {
+  [[ -x "$MACOS_TS_APP" ]] || return 1
+  cat > "$MACOS_TS_CLI" <<EOF
+#!/bin/sh
+exec "$MACOS_TS_APP" "\$@"
+EOF
+  chmod 755 "$MACOS_TS_CLI"
+  echo "==> Installed Tailscale CLI wrapper → $MACOS_TS_CLI"
+}
+
 ensure_tailscale_cli() {
-  if command -v tailscale >/dev/null 2>&1; then
+  if tailscale_cli_works; then
     return 0
   fi
-  local app="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-  if [[ -x "$app" ]]; then
-    ln -sf "$app" "$INSTALL_PREFIX/bin/tailscale"
-    echo "==> Linked Tailscale CLI → $INSTALL_PREFIX/bin/tailscale"
-    return 0
+  # Remove broken symlink from older URC installs.
+  if [[ -L "$MACOS_TS_CLI" ]] && [[ "$(readlink "$MACOS_TS_CLI")" == *Tailscale.app* ]]; then
+    rm -f "$MACOS_TS_CLI"
   fi
-  echo "WARN: Tailscale CLI not found. Install from https://tailscale.com/download/mac" >&2
-  return 1
+  install_macos_tailscale_wrapper || {
+    echo "WARN: Install Tailscale from https://tailscale.com/download/mac and sign in via the menu bar." >&2
+    return 1
+  }
 }
 ensure_tailscale_cli || true
 
@@ -105,10 +123,10 @@ fi
 sudo -u "$ts_user" tailscale set --hostname="$hn" 2>/dev/null || true
 
 TS_BIN=""
-if command -v tailscale >/dev/null 2>&1; then
+if [[ -x "$MACOS_TS_APP" ]]; then
+  TS_BIN="$MACOS_TS_APP"
+elif command -v tailscale >/dev/null 2>&1; then
   TS_BIN="$(command -v tailscale)"
-elif [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
-  TS_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 fi
 TOKEN="$(openssl rand -hex 24)"
 {

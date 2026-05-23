@@ -15,6 +15,9 @@ load_client_env() {
   fi
   if [[ -z "${URC_TAILSCALE_BIN:-}" ]] && [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]]; then
     export URC_TAILSCALE_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+  elif [[ -L /usr/local/bin/tailscale ]] \
+      && [[ "$(readlink /usr/local/bin/tailscale 2>/dev/null)" == *Tailscale.app* ]]; then
+    export URC_TAILSCALE_BIN="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
   fi
 }
 

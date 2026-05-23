@@ -21,8 +21,8 @@ pub fn tailscale_bin() -> Result<PathBuf> {
             if path.as_os_str().is_empty() {
                 continue;
             }
-            if is_executable(&path) {
-                return Ok(path);
+            if let Some(resolved) = resolve_tailscale_exec(&path) {
+                return Ok(resolved);
             }
             anyhow::bail!("{key} is set but not executable: {}", path.display());
         }
@@ -31,28 +31,57 @@ pub fn tailscale_bin() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("PATH") {
         for dir in path.split(':').filter(|d| !d.is_empty()) {
             let candidate = Path::new(dir).join("tailscale");
-            if is_executable(&candidate) {
-                return Ok(candidate);
+            if let Some(resolved) = resolve_tailscale_exec(&candidate) {
+                return Ok(resolved);
             }
         }
     }
 
     for candidate in default_candidates() {
-        if is_executable(&candidate) {
-            return Ok(candidate);
+        if let Some(resolved) = resolve_tailscale_exec(&candidate) {
+            return Ok(resolved);
         }
     }
 
     #[cfg(target_os = "macos")]
-    let hint = "Install Tailscale from https://tailscale.com/download/mac (menu bar app), \
-or: sudo ln -sf /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale";
+    let hint = "Install Tailscale from https://tailscale.com/download/mac, sign in via the \
+menu bar app, then run the URC installer again (it adds a safe CLI wrapper — do not symlink).";
     #[cfg(not(target_os = "macos"))]
     let hint = "Install Tailscale: https://tailscale.com/download";
 
     anyhow::bail!(
         "tailscale CLI not found. {hint}\n\
-         Or set URC_TAILSCALE_BIN to the full path of the tailscale binary."
+         Or set URC_TAILSCALE_BIN to the Tailscale binary inside Tailscale.app."
     );
+}
+
+/// Path suitable for `Command::new` — never a symlink to the macOS .app binary.
+fn resolve_tailscale_exec(path: &Path) -> Option<PathBuf> {
+    if !is_executable(path) {
+        return None;
+    }
+    Some(normalize_tailscale_exec(path))
+}
+
+fn normalize_tailscale_exec(path: &Path) -> PathBuf {
+    if path.is_symlink() {
+        if let Ok(target) = std::fs::read_link(path) {
+            let resolved = if target.is_absolute() {
+                target
+            } else {
+                path.parent()
+                    .unwrap_or_else(|| Path::new("/"))
+                    .join(target)
+            };
+            if resolved.is_file() {
+                return resolved;
+            }
+        }
+        if let Ok(canonical) = path.canonicalize() {
+            return canonical;
+        }
+    }
+    path.to_path_buf()
 }
 
 fn default_candidates() -> Vec<PathBuf> {
@@ -90,7 +119,7 @@ fn is_executable(path: &Path) -> bool {
 
 /// Run `tailscale status --json` and parse stdout.
 pub fn status_json() -> Result<Value> {
-    let bin = tailscale_bin()?;
+    let bin = normalize_tailscale_exec(&tailscale_bin()?);
     let output = Command::new(&bin)
         .args(["status", "--json"])
         .output()
