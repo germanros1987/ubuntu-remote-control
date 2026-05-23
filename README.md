@@ -9,7 +9,7 @@ Use the **same Tailscale account** on every machine.
 ### 1. Each PC you want to control
 
 ```bash
-curl -fsSL https://YOUR_SERVER/install | sudo bash
+curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
 # Choose: 1) PC I remote INTO
 # Sign in to Tailscale when prompted
 ```
@@ -17,7 +17,7 @@ curl -fsSL https://YOUR_SERVER/install | sudo bash
 ### 2. Your laptop
 
 ```bash
-curl -fsSL https://YOUR_SERVER/install | sudo bash
+curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
 # Choose: 2) Laptop I connect FROM
 # Sign in to Tailscale (same account)
 ```
@@ -47,18 +47,24 @@ Optional **VPS relay** is still available for advanced setups (`--coordinator-ur
 ```bash
 # PC (unattended Tailscale login)
 URC_TAILSCALE_AUTH_KEY=tskey-auth-... \
-  curl -fsSL ... | sudo bash -s -- --role agent -y
+  curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+  sudo bash -s -- --role agent -y
 
 # Laptop
-curl -fsSL ... | sudo bash -s -- --role client -y
+curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+  sudo bash -s -- --role client -y
 ```
 
-## Host your own install URL
+## Self-hosted install mirror (optional)
+
+By default the installer pulls source from this repo on GitHub. To host your own copy (e.g. prebuilt binaries):
 
 ```bash
 ./packaging/mk-dist.sh
-# Upload dist/install and binaries to HTTPS — see mk-dist.sh output
+# Upload dist/ to HTTPS, then see packaging/mk-dist.sh for URC_BINARIES_URL examples
 ```
+
+Repository: [github.com/germanros1987/ubuntu-remote-control](https://github.com/germanros1987/ubuntu-remote-control)
 
 Local test from checkout:
 
@@ -72,4 +78,4 @@ Auto-restart on crash, boot, login, and every 10 minutes. See [docs/service-heal
 
 ## License
 
-MIT (application). VNC backends are GPL system packages.
+[MIT](LICENSE) — application code. VNC backends are GPL system packages from Ubuntu.

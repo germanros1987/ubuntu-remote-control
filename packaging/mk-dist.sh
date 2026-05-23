@@ -32,13 +32,20 @@ Done. Host these files on any HTTPS server:
   dist/urc-source.tar.gz    # URC_SOURCE_TARBALL=.../urc-source.tar.gz
   dist/linux-${ARCH}/       # URC_BINARIES_URL=.../linux-${ARCH}
 
-Example (after uploading to your server):
+Install from GitHub (public repo — no upload needed):
 
-  curl -fsSL https://YOUR_SERVER/install | sudo bash
+  curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
 
-  # Or prebuilt (no Rust on target):
-  curl -fsSL https://YOUR_SERVER/install | sudo URC_BINARIES_URL=https://YOUR_SERVER/linux-${ARCH} URC_RAW_URL=https://YOUR_SERVER/raw/main bash
+Self-hosted mirror (after uploading dist/ to your HTTPS server):
 
-  # Or tarball only:
-  curl -fsSL https://YOUR_SERVER/install | sudo URC_SOURCE_TARBALL=https://YOUR_SERVER/urc-source.tar.gz bash
+  curl -fsSL https://your-server/install | sudo bash
+
+  # Prebuilt binaries (no Rust on target):
+  curl -fsSL https://your-server/install | sudo \\
+    URC_BINARIES_URL=https://your-server/linux-${ARCH} \\
+    URC_RAW_URL=https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main bash
+
+  # Tarball only:
+  curl -fsSL https://your-server/install | sudo \\
+    URC_SOURCE_TARBALL=https://your-server/urc-source.tar.gz bash
 EOF

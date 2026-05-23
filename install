@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Ubuntu Remote Control — install via curl (no git)
 #
-#   curl -fsSL https://raw.githubusercontent.com/YOU/urc/main/install | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
 #
 # Optional:
-#   URC_GITHUB=YOU/ubuntu-remote-control
-#   URC_SOURCE_TARBALL=https://example.com/urc.tar.gz
-#   URC_BINARIES_URL=https://example.com/releases/latest/linux-amd64
+#   URC_GITHUB=germanros1987/ubuntu-remote-control
+#   URC_SOURCE_TARBALL=https://your-server/urc-source.tar.gz
+#   URC_BINARIES_URL=https://your-server/linux-x86_64
+#   URC_RAW_URL=https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main
 #
 set -euo pipefail
 
@@ -67,7 +68,7 @@ if [[ -n "${URC_SOURCE_TARBALL:-}" ]]; then
   echo "==> Downloading tarball"
   curl -fsSL "$URC_SOURCE_TARBALL" | tar xz -C "$WORKDIR" --strip-components=1
 else
-  GH="${URC_GITHUB:-ubuntu-remote-control/ubuntu-remote-control}"
+  GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
   BR="${URC_BRANCH:-main}"
   URL="https://github.com/${GH}/archive/refs/heads/${BR}.tar.gz"
   echo "==> Downloading source (curl)"

@@ -1,6 +1,6 @@
 [Unit]
 Description=Ubuntu Remote Control Agent
-Documentation=https://github.com/ubuntu-remote-control/ubuntu-remote-control
+Documentation=https://github.com/germanros1987/ubuntu-remote-control
 After=network-online.target display-manager.service
 Wants=network-online.target display-manager.service
 StartLimitIntervalSec=0
