@@ -252,14 +252,14 @@ impl VncBackend for X11Backend {
             // resize the user's desktop via SetDesktopSize and leave it stuck.
             "-AcceptSetDesktopSize",
             "0",
-            // Clipboard sync (text). Modern TigerVNC ExtendedClipboard sits on top.
+            // Clipboard sync (text). The CutBuffer pair is what the
+            // x0tigervncserver wrapper passes through to X0tigervnc; the modern
+            // ExtendedClipboard extension layers on top automatically.
+            // (`-SendPrimary` / `-SetPrimary` exist in newer upstream TigerVNC
+            // but the Ubuntu 24.04 wrapper rejects them — leave them off.)
             "-SendCutBuffer",
             "1",
             "-AcceptCutBuffer",
-            "1",
-            "-SendPrimary",
-            "1",
-            "-SetPrimary",
             "1",
             // Don't drop existing viewers when a second one connects — the unified UI
             // can reopen during a session and should not kill the X session.
