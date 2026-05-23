@@ -156,6 +156,9 @@ URC_TOKEN=$TOKEN
 URC_COORDINATOR_PUBLIC=$coord_pub
 URC_HOST_ID=${HOST_ID:-$(hostname -s)}
 EOF
+  if [[ -n "${URC_VNC_PASSWORD_PLAIN:-}" ]]; then
+    echo "URC_VNC_PASSWORD=$URC_VNC_PASSWORD_PLAIN" >> "$CREDENTIALS_FILE"
+  fi
   chmod 600 "$CREDENTIALS_FILE"
 }
 
@@ -313,15 +316,22 @@ setup_vnc_password() {
   if [[ -f /etc/urc/vncpasswd ]]; then
     return
   fi
-  local vnc_pass
-  vnc_pass="$(openssl rand -base64 12)"
+  local vnc_pass vncpwd
+  vnc_pass="$(openssl rand -base64 12 | tr -d '/+=' | head -c 12)"
+  # At least 6 chars for TigerVNC; only first 8 matter.
+  [[ ${#vnc_pass} -lt 6 ]] && vnc_pass="${vnc_pass}abcdef"
   install -d -m755 /etc/urc
-  if printf '%s\n' "$vnc_pass" | vncpasswd -f /etc/urc/vncpasswd 2>/dev/null; then
+  vncpwd="$(command -v vncpasswd || command -v tigervncpasswd || true)"
+  if [[ -z "$vncpwd" ]]; then
+    echo "Note: install tigervnc, then: printf 'PASSWORD\\n' | vncpasswd -f > /etc/urc/vncpasswd" >&2
+    return
+  fi
+  if printf '%s\n' "$vnc_pass" | "$vncpwd" -f > /etc/urc/vncpasswd 2>/dev/null; then
     chmod 600 /etc/urc/vncpasswd
-    echo "$vnc_pass" >> "$CREDENTIALS_FILE"
-    echo "URC_VNC_PASSWORD=$vnc_pass" >> "$CREDENTIALS_FILE"
+    export URC_VNC_PASSWORD_PLAIN="$vnc_pass"
   else
-  echo "Note: create VNC password manually: sudo vncpasswd /etc/urc/vncpasswd"
+    echo "Note: create VNC password manually:" >&2
+    echo "  printf 'YOUR_PASSWORD\\n' | vncpasswd -f | sudo tee /etc/urc/vncpasswd >/dev/null && sudo chmod 600 /etc/urc/vncpasswd" >&2
   fi
 }
 
