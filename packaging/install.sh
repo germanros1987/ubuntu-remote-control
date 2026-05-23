@@ -322,6 +322,36 @@ install_base_packages() {
   apt-get install -y -qq curl ca-certificates openssl
 }
 
+rustc_version_ok() {
+  local major minor
+  major=$(rustc --version 2>/dev/null | sed -n 's/rustc \([0-9]*\)\..*/\1/p')
+  minor=$(rustc --version 2>/dev/null | sed -n 's/rustc [0-9]*\.\([0-9]*\).*/\1/p')
+  [[ -n "$major" && -n "$minor" ]] || return 1
+  [[ "$major" -gt 1 ]] && return 0
+  [[ "$major" -eq 1 && "$minor" -ge 78 ]]
+}
+
+linux_install_rustup() {
+  local user="${SUDO_USER:-root}"
+  echo "==> Installing Rust via rustup (apt rustc is too old for this project)"
+  if [[ "$user" == "root" ]]; then
+    curl -fsSL https://sh.rustup.rs | sh -s -- -y -q --default-toolchain stable
+    # shellcheck source=/dev/null
+    source "${HOME}/.cargo/env"
+  else
+    sudo -u "$user" -H bash -lc 'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q --default-toolchain stable'
+  fi
+}
+
+linux_run_cargo() {
+  local user="${SUDO_USER:-root}"
+  if [[ "$user" != "root" ]]; then
+    sudo -u "$user" -H bash -lc "$1"
+  else
+    bash -lc "$1"
+  fi
+}
+
 install_build_deps() {
   if is_macos; then
     if mac_has_cargo; then
@@ -352,14 +382,18 @@ install_build_deps() {
       rustup default stable 2>/dev/null || true
     fi
   fi
-  if ! cargo --version >/dev/null 2>&1; then
-    apt-get install -y -qq cargo rustc build-essential pkg-config
+  apt-get install -y -qq build-essential pkg-config libssl-dev 2>/dev/null || \
+    apt-get install -y -qq build-essential pkg-config
+  if ! rustc_version_ok; then
+    linux_install_rustup
+  elif ! cargo --version >/dev/null 2>&1; then
+    apt-get install -y -qq cargo rustc || true
   fi
-  if ! cargo --version >/dev/null 2>&1 && [[ -x /usr/bin/cargo ]]; then
-    export PATH="/usr/bin:/usr/sbin:$PATH"
+  if ! rustc_version_ok; then
+    linux_install_rustup
   fi
-  if ! cargo --version >/dev/null 2>&1; then
-    echo "ERROR: Could not run cargo. Try: sudo apt install cargo rustc  OR  rustup default stable" >&2
+  if ! linux_run_cargo 'source "$HOME/.cargo/env" 2>/dev/null; cargo --version' >/dev/null 2>&1; then
+    echo "ERROR: Could not run a modern cargo (need Rust 1.78+)." >&2
     exit 1
   fi
 }
@@ -380,8 +414,7 @@ install_client_binaries() {
   if is_macos; then
     mac_run_user "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" && cargo build --release -p urc-client"
   else
-    cd "$REPO_ROOT"
-    cargo build --release -p urc-client
+    linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release -p urc-client"
   fi
   install_file 755 "$REPO_ROOT/target/release/urc-client" "$INSTALL_PREFIX/bin/urc-client"
   install_file 755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
@@ -401,9 +434,8 @@ build_and_install_binaries() {
     return
   fi
   install_build_deps
-  cd "$REPO_ROOT"
   echo "==> Building URC (first install — may take a few minutes)"
-  cargo build --release
+  linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release"
   install_file 755 target/release/urc-agent "$INSTALL_PREFIX/bin/urc-agent"
   install_file 755 target/release/urc-client "$INSTALL_PREFIX/bin/urc-client"
   install_file 755 target/release/urc-coordinator "$INSTALL_PREFIX/bin/urc-coordinator"
@@ -689,7 +721,7 @@ case "$ROLE" in
     if [[ -f "$REPO_ROOT/Cargo.toml" ]]; then
       echo "==> Building urc-agent from source (latest fixes)"
       install_build_deps
-      (cd "$REPO_ROOT" && cargo build --release -p urc-agent)
+      linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release -p urc-agent"
       install_file 755 "$REPO_ROOT/target/release/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
     fi
     setup_agent_config
