@@ -15,6 +15,8 @@ TOKEN=""
 COORDINATOR_URL=""
 HOST_ID=""
 WITH_TAILSCALE=false
+WITHOUT_TAILSCALE=false
+TAILSCALE_AUTH_KEY="${URC_TAILSCALE_AUTH_KEY:-}"
 NONINTERACTIVE=false
 INSTALL_PREFIX="/usr/local"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,24 +24,23 @@ CREDENTIALS_FILE="/etc/urc/credentials"
 
 usage() {
   cat <<'EOF'
-Ubuntu Remote Control — installer
+Ubuntu Remote Control — installer (Tailscale turn-key)
 
-  sudo ./install                     Interactive wizard (1-click style)
-  sudo ./install --role coordinator  Relay server (VPS, port 21150)
-  sudo ./install --role agent        This machine — allow remote desktop
-  sudo ./install --role client       This machine — connect to a remote PC
+  sudo ./install                     Interactive: PC to control or laptop client
+  sudo ./install --role agent        Remote-into this machine (+ Tailscale)
+  sudo ./install --role client       Laptop — list/connect via Tailscale
+  sudo ./install --role coordinator  Optional VPS relay (advanced)
 
 Options:
-  --coordinator-url URL   ws://your-vps:21150/ws/agent (agent) or .../ws/client
-  --host-id NAME          Name to use when connecting (default: hostname)
-  --token SECRET          Shared secret (auto-generated if omitted)
-  --gpu auto|nvidia|intel|amd   For headless agent only
-  --with-tailscale
-  -y, --yes               Non-interactive; accept defaults
-  -h, --help
+  --coordinator-url URL   Optional relay (omit for Tailscale-only)
+  --host-id NAME          Tailscale / urc name (default: hostname)
+  --without-tailscale     Skip Tailscale (not recommended)
+  --tailscale-auth-key K  Unattended tailscale up (or URC_TAILSCALE_AUTH_KEY)
+  -y, --yes               Non-interactive
 
-After install, connect with:
-  urc connect HOST_ID
+After install (same Tailscale account on all machines):
+  urc hosts
+  urc connect NAME
 EOF
 }
 
@@ -52,6 +53,8 @@ while [[ $# -gt 0 ]]; do
     --coordinator-url) COORDINATOR_URL="$2"; shift 2 ;;
     --host-id) HOST_ID="$2"; shift 2 ;;
     --with-tailscale) WITH_TAILSCALE=true; shift ;;
+    --without-tailscale) WITHOUT_TAILSCALE=true; shift ;;
+    --tailscale-auth-key) TAILSCALE_AUTH_KEY="$2"; shift 2 ;;
     --prefix) INSTALL_PREFIX="$2"; shift 2 ;;
     -y|--yes) NONINTERACTIVE=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -83,6 +86,41 @@ has_desktop() {
   dpkg -l ubuntu-desktop-minimal 2>/dev/null | grep -q '^ii' || \
   dpkg -l ubuntu-desktop 2>/dev/null | grep -q '^ii' || \
   dpkg -l gnome-shell 2>/dev/null | grep -q '^ii'
+}
+
+want_tailscale() {
+  $WITHOUT_TAILSCALE && return 1
+  $WITH_TAILSCALE && return 0
+  [[ "$ROLE" == "agent" || "$ROLE" == "client" ]]
+}
+
+tailscale_mode() {
+  want_tailscale && [[ -z "${COORDINATOR_URL:-}" ]]
+}
+
+setup_tailscale() {
+  echo "==> Installing Tailscale"
+  if ! command -v tailscale >/dev/null 2>&1; then
+    curl -fsSL https://tailscale.com/install.sh | sh
+  fi
+  systemctl enable --now tailscaled 2>/dev/null || true
+
+  if ! tailscale status --json 2>/dev/null | grep -qE '"BackendState":"Running"|"State":10'; then
+    if [[ -n "$TAILSCALE_AUTH_KEY" ]]; then
+      tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --accept-routes
+    elif ! $NONINTERACTIVE; then
+      echo "Sign in to Tailscale (open the URL below if prompted):"
+      tailscale up || true
+    else
+      echo "Tailscale installed. Finish login with: sudo tailscale up"
+      echo "  (or pass --tailscale-auth-key / set URC_TAILSCALE_AUTH_KEY)"
+    fi
+  else
+    echo "Tailscale already connected."
+  fi
+
+  local hn="${HOST_ID:-$(hostname -s)}"
+  tailscale set --hostname="$hn" 2>/dev/null || true
 }
 
 ensure_token() {
@@ -128,16 +166,16 @@ run_interactive() {
   echo "=== Ubuntu Remote Control ==="
   echo ""
   echo "What is this machine?"
-  echo "  1) PC I remote INTO (home/office Ubuntu)"
-  echo "  2) Relay server (small VPS with public IP)"
-  echo "  3) Laptop I connect FROM"
+  echo "  1) PC I remote INTO (install agent + Tailscale)"
+  echo "  2) Laptop I connect FROM (install client + Tailscale)"
+  echo "  3) Advanced: VPS relay server (optional)"
   echo ""
   local choice
   choice="$(prompt "Choose 1-3" "1")"
   case "$choice" in
     1) ROLE=agent ;;
-    2) ROLE=coordinator ;;
-    3) ROLE=client ;;
+    2) ROLE=client ;;
+    3) ROLE=coordinator ;;
     *) echo "Invalid choice"; exit 1 ;;
   esac
   echo ""
@@ -152,7 +190,7 @@ configure_role_interactive() {
     agent)
       if has_desktop; then
         PROFILE=minimal
-        echo "Desktop detected — installing agent only (no extra desktop packages)."
+        echo "Desktop detected — agent + Tailscale (no VPS needed)."
       else
         local headless
         headless="$(prompt "Headless server (install full desktop stack)? [y/N]" "N")"
@@ -163,18 +201,24 @@ configure_role_interactive() {
           PROFILE=minimal
         fi
       fi
-      HOST_ID="$(prompt "Name for this PC (used when connecting)" "$(hostname -s)")"
-      if [[ -z "$COORDINATOR_URL" ]]; then
-        local pub
-        pub="$(prompt "Coordinator WebSocket URL" "ws://YOUR_VPS_IP:21150/ws/agent")"
-        COORDINATOR_URL="$pub"
+      HOST_ID="$(prompt "Name for this PC (shown in urc hosts)" "$(hostname -s)")"
+      if ! $NONINTERACTIVE && want_tailscale; then
+        local relay
+        relay="$(prompt "Use a VPS relay instead of Tailscale-only? [y/N]" "N")"
+        if [[ "$relay" =~ ^[Yy] ]]; then
+          COORDINATOR_URL="$(prompt "Coordinator WebSocket URL" "ws://YOUR_VPS_IP:21150/ws/agent")"
+        fi
       fi
       ;;
     client)
-      if [[ -z "$COORDINATOR_URL" ]]; then
-        COORDINATOR_URL="$(prompt "Coordinator WebSocket URL" "ws://YOUR_VPS_IP:21150/ws/client")"
+      echo "Client + Tailscale — you will see all PCs on your tailnet."
+      if ! $NONINTERACTIVE; then
+        local relay
+        relay="$(prompt "Use a VPS relay instead of Tailscale-only? [y/N]" "N")"
+        if [[ "$relay" =~ ^[Yy] ]]; then
+          COORDINATOR_URL="$(prompt "Coordinator WebSocket URL" "ws://YOUR_VPS_IP:21150/ws/client")"
+        fi
       fi
-      HOST_ID="$(prompt "Host ID to connect to" "")"
       ;;
   esac
 }
@@ -259,7 +303,14 @@ setup_agent_config() {
   local hid="${HOST_ID:-$(hostname -s)}"
   sed -i "s/^host_id = .*/host_id = \"$hid\"/" /etc/urc/agent.toml
   sed -i "s/^token = .*/token = \"$TOKEN\"/" /etc/urc/agent.toml
-  sed -i "s|^coordinator_url = .*|coordinator_url = \"$COORDINATOR_URL\"|" /etc/urc/agent.toml
+  if [[ -n "${COORDINATOR_URL:-}" ]]; then
+    sed -i "s|^coordinator_url = .*|coordinator_url = \"$COORDINATOR_URL\"|" /etc/urc/agent.toml
+  else
+    sed -i 's|^coordinator_url = .*|coordinator_url = ""|' /etc/urc/agent.toml
+  fi
+  if want_tailscale; then
+    sed -i '/^\[tailscale\]/,/^\[/ s/^enabled = .*/enabled = true/' /etc/urc/agent.toml
+  fi
   install -d -m700 /etc/urc/tls
   setup_vnc_password
 }
@@ -322,19 +373,27 @@ print_finish_coordinator() {
 
 print_finish_agent() {
   local hid="${HOST_ID:-$(hostname -s)}"
-  local coord_base="${COORDINATOR_URL%/ws/agent}"
-  coord_base="${coord_base%/ws/client}"
   save_credentials ""
   echo ""
   echo "============================================"
-  echo "  This PC is ready: host id = $hid"
+  echo "  This PC is ready on Tailscale as: $hid"
   echo "============================================"
   echo ""
-  echo "  From your laptop (after ./install --role client):"
+  echo "  On your laptop (same Tailscale account):"
+  echo "    urc hosts"
   echo "    urc connect $hid"
   echo ""
-  echo "  VNC + API credentials: $CREDENTIALS_FILE"
+  echo "  VNC password (if generated): $CREDENTIALS_FILE"
   echo "  Health: urc-agent status"
+  if want_tailscale && command -v tailscale >/dev/null 2>&1; then
+    local ts_ip
+    ts_ip="$(tailscale ip -4 2>/dev/null || true)"
+    if [[ -n "$ts_ip" ]]; then
+      echo "  Tailscale: $ts_ip (direct TLS on port 15900 when logged in)"
+    else
+      echo "  Tailscale: run 'sudo tailscale up' to finish login"
+    fi
+  fi
   echo ""
   if [[ "$PROFILE" == "desktop" ]]; then
     echo "  Reboot once to start the graphical session."
@@ -343,19 +402,17 @@ print_finish_agent() {
 }
 
 print_finish_client() {
-  write_client_config "$COORDINATOR_URL" "$HOST_ID"
+  write_client_config "${COORDINATOR_URL:-}" "$HOST_ID"
   echo ""
   echo "============================================"
   echo "  Client ready"
   echo "============================================"
   echo ""
-  if [[ -n "$HOST_ID" ]]; then
-    echo "  Connect now:"
-    echo "    urc connect $HOST_ID"
-  else
-    echo "  Connect:"
-    echo "    urc connect HOST_ID"
-  fi
+  echo "  List your PCs:"
+  echo "    urc hosts"
+  echo ""
+  echo "  Connect:"
+  echo "    urc connect NAME"
   echo ""
 }
 
@@ -378,20 +435,11 @@ fi
 if $NONINTERACTIVE; then
   case "$ROLE" in
     agent)
-      [[ -n "$COORDINATOR_URL" ]] || {
-        echo "Non-interactive agent install requires --coordinator-url ws://VPS:21150/ws/agent" >&2
-        exit 1
-      }
       if [[ -z "$PROFILE" ]]; then
         if has_desktop; then PROFILE=minimal; else PROFILE=desktop; fi
       fi
       ;;
-    client)
-      [[ -n "$COORDINATOR_URL" ]] || {
-        echo "Non-interactive client install requires --coordinator-url ws://VPS:21150/ws/client" >&2
-        exit 1
-      }
-      ;;
+    client) ;;
   esac
 fi
 
@@ -420,6 +468,9 @@ case "$ROLE" in
     fi
     build_and_install_binaries
     setup_agent_config
+    if want_tailscale; then
+      setup_tailscale
+    fi
     install_libexec
     install_systemd_units
     enable_agent
@@ -429,7 +480,9 @@ case "$ROLE" in
     ensure_token
     install_client_deps
     build_and_install_binaries
-    [[ -z "$COORDINATOR_URL" ]] && COORDINATOR_URL="ws://127.0.0.1:21150/ws/client"
+    if want_tailscale; then
+      setup_tailscale
+    fi
     print_finish_client
     ;;
   *)
@@ -438,7 +491,3 @@ case "$ROLE" in
     ;;
 esac
 
-if $WITH_TAILSCALE; then
-  command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh
-  echo "Tip: set [tailscale] enabled = true in /etc/urc/agent.toml"
-fi

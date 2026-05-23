@@ -1,86 +1,66 @@
 # Ubuntu Remote Control (URC)
 
-Remote your Ubuntu machines through a relay — your **real** GPU desktop, encrypted, reachable behind NAT.
+Remote your Ubuntu PCs over **Tailscale** — real GPU desktop, encrypted, no VPS required.
 
-## Install (curl only — no git)
+## Turn-key setup (two installs)
 
-**Interactive** (recommended — one question per machine):
+Use the **same Tailscale account** on every machine.
+
+### 1. Each PC you want to control
 
 ```bash
 curl -fsSL https://YOUR_SERVER/install | sudo bash
+# Choose: 1) PC I remote INTO
+# Sign in to Tailscale when prompted
 ```
 
-Set `URC_GITHUB=youruser/ubuntu-remote-control` if the script should pull source from GitHub (default). Or host your own tarball/binaries (see below).
-
-**What you pick:**
-
-| Prompt | Machine |
-|--------|---------|
-| 1 | Ubuntu PC you remote **into** |
-| 2 | VPS **relay** (open TCP 21150) |
-| 3 | Laptop you **connect from** |
-
-Then connect:
+### 2. Your laptop
 
 ```bash
-urc connect my-pc-name
+curl -fsSL https://YOUR_SERVER/install | sudo bash
+# Choose: 2) Laptop I connect FROM
+# Sign in to Tailscale (same account)
 ```
 
-Credentials land in `/etc/urc/credentials` on each box.
-
-### Three commands (non-interactive)
+### 3. Connect
 
 ```bash
-# VPS
-curl -fsSL https://YOUR_SERVER/install | sudo bash -s -- --role coordinator -y
+urc hosts              # all machines on your tailnet
+urc connect my-pc      # open remote desktop
+```
 
-# Home PC
-curl -fsSL https://YOUR_SERVER/install | sudo bash -s -- --role agent \
-  --coordinator-url ws://VPS_IP:21150/ws/agent \
-  --token YOUR_TOKEN -y
+That is it — no coordinator URL, no tokens to copy, no host IDs to configure by hand. Machine names come from Tailscale (defaults to your PC hostname).
+
+## What happens under the hood
+
+| Step | What URC does |
+|------|----------------|
+| Install on PC | Agent + TigerVNC + Tailscale; agent listens on TLS port 15900 on the tailnet |
+| Install on laptop | Client + Tailscale |
+| `urc hosts` | Reads your tailnet from `tailscale status` |
+| `urc connect NAME` | Resolves NAME → Tailscale IP → encrypted VNC |
+
+Optional **VPS relay** is still available for advanced setups (`--coordinator-url` during install). Most users only need Tailscale.
+
+## Non-interactive / auth keys
+
+```bash
+# PC (unattended Tailscale login)
+URC_TAILSCALE_AUTH_KEY=tskey-auth-... \
+  curl -fsSL ... | sudo bash -s -- --role agent -y
 
 # Laptop
-curl -fsSL https://YOUR_SERVER/install | sudo bash -s -- --role client \
-  --coordinator-url ws://VPS_IP:21150/ws/client \
-  --token YOUR_TOKEN --host-id my-pc -y
-
-urc connect my-pc
+curl -fsSL ... | sudo bash -s -- --role client -y
 ```
 
-### Host your own install URL
-
-From a machine with Rust:
+## Host your own install URL
 
 ```bash
 ./packaging/mk-dist.sh
-# Upload dist/install, dist/urc-source.tar.gz, and/or dist/linux-x86_64/ to HTTPS
+# Upload dist/install and binaries to HTTPS — see mk-dist.sh output
 ```
 
-**Fast install (prebuilt binaries, no rustc on target):**
-
-```bash
-curl -fsSL https://YOUR_SERVER/install | sudo \
-  URC_BINARIES_URL=https://YOUR_SERVER/linux-x86_64 \
-  URC_RAW_URL=https://YOUR_SERVER/raw/main \
-  bash
-```
-
-**Tarball only:**
-
-```bash
-curl -fsSL https://YOUR_SERVER/install | sudo \
-  URC_SOURCE_TARBALL=https://YOUR_SERVER/urc-source.tar.gz bash
-```
-
-### Local test (before you host it)
-
-```bash
-./packaging/mk-dist.sh
-curl -fsSL file://$PWD/dist/install | sudo \
-  URC_SOURCE_TARBALL=file://$PWD/dist/urc-source.tar.gz bash
-```
-
-Or from checkout without curl:
+Local test from checkout:
 
 ```bash
 sudo ./install

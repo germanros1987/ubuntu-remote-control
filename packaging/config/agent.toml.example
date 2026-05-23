@@ -11,6 +11,7 @@ files_root = "/home"
 # encryption = "tls"  # or use --insecure CLI flag
 
 [tailscale]
+# Desktop installs enable this automatically (install.sh)
 enabled = false
 prefer_direct = true
 

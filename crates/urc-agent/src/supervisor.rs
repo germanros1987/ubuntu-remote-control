@@ -91,11 +91,17 @@ async fn run_one_cycle(
         None
     };
 
+    let use_coordinator = !config.coordinator_url.trim().is_empty();
     let coordinator = Arc::new(CoordinatorClient::new(config.clone(), vnc_port));
-    let coord_client = coordinator.clone();
-    let coord_handle = tokio::spawn(async move {
-        coord_client.run_loop().await;
-    });
+    let coord_handle = if use_coordinator {
+        let coord_client = coordinator.clone();
+        tokio::spawn(async move {
+            coord_client.run_loop().await;
+        })
+    } else {
+        info!("coordinator off — reachable via Tailscale on TLS port {}", config.listen_tls_port);
+        tokio::spawn(async { std::future::pending::<()>().await })
+    };
 
     let tls_handle = if !config.insecure {
         let tunnel = TlsTunnel::new(config, vnc_port)?;

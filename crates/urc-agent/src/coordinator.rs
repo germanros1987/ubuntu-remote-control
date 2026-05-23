@@ -55,6 +55,13 @@ impl CoordinatorClient {
     async fn connect_once(self: &Arc<Self>) -> Result<()> {
         self.connected.store(false, Ordering::Relaxed);
 
+        if self.config.coordinator_url.trim().is_empty() {
+            info!("coordinator disabled — Tailscale-only mode");
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        }
+
         let url = self
             .config
             .coordinator_url

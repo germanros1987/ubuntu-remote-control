@@ -1,5 +1,7 @@
 //! Shared protocol types for Ubuntu Remote Control.
 
+pub mod tailscale;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

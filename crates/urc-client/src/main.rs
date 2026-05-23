@@ -1,22 +1,23 @@
-//! Ubuntu Remote Control client — connect via coordinator and launch VNC viewer.
+//! Ubuntu Remote Control client — discover machines on Tailscale and connect.
+
+mod tls_forward;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use futures_util::{SinkExt, StreamExt};
 use std::path::PathBuf;
 use std::process::Command;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
-use urc_common::{parse_ws_message, to_ws_message, ClientMessage, CoordinatorMessage};
+use urc_common::{
+    parse_ws_message, to_ws_message, ClientMessage, CoordinatorMessage, DEFAULT_TLS_LISTEN_PORT,
+};
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 #[command(name = "urc-client", about = "Ubuntu Remote Control client")]
 struct Cli {
-    #[arg(long, default_value = "ws://127.0.0.1:21150/ws/client")]
+    /// Coordinator WebSocket (optional — only for relay fallback)
+    #[arg(long, default_value = "")]
     coordinator: String,
 
     #[arg(long, default_value = "changeme")]
@@ -32,9 +33,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// List online hosts
+    /// List machines on your Tailscale network
     Hosts,
-    /// Connect to a host by ID
+    /// Connect to a machine by Tailscale name
     Connect {
         host_id: String,
         /// Local port for VNC viewer (default 15900)
@@ -63,24 +64,47 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Hosts => list_hosts(&cli).await,
+        Commands::Hosts => list_hosts().await,
         Commands::Connect {
             ref host_id,
             local_port,
             ref viewer,
             ref password_file,
-        } => connect_host(&cli, host_id, local_port, viewer, password_file.as_deref()).await,
+        } => {
+            connect_host(
+                &cli,
+                host_id,
+                local_port,
+                viewer,
+                password_file.as_deref(),
+            )
+            .await
+        }
         Commands::Upload { .. } => {
             anyhow::bail!("use connect first; file upload via curl to forwarded files port")
         }
     }
 }
 
-async fn list_hosts(cli: &Cli) -> Result<()> {
-    let base = cli.coordinator.replace("/ws/client", "");
-    let url = format!("{base}/hosts");
-    let body = reqwest_get(&url).await?;
-    println!("{body}");
+async fn list_hosts() -> Result<()> {
+    let json = tokio::task::spawn_blocking(urc_common::tailscale::status_json)
+        .await
+        .context("tailscale status")??;
+    let peers = urc_common::tailscale::list_peers(&json);
+
+    if peers.is_empty() {
+        println!("No other machines on your tailnet.");
+        println!("Install URC on each PC you want to control, sign in with the same Tailscale account, then run urc hosts again.");
+        return Ok(());
+    }
+
+    println!("{:<24} {:<16} {}", "NAME", "TAILSCALE IP", "STATUS");
+    for p in &peers {
+        let status = if p.online { "online" } else { "offline" };
+        println!("{:<24} {:<16} {}", p.name, p.ipv4, status);
+    }
+    println!();
+    println!("Connect: urc connect NAME");
     Ok(())
 }
 
@@ -91,7 +115,92 @@ async fn connect_host(
     viewer: &str,
     password_file: Option<&std::path::Path>,
 ) -> Result<()> {
-    let (ws, _) = connect_async(&cli.coordinator).await.context("coordinator")?;
+    let json = tokio::task::spawn_blocking(urc_common::tailscale::status_json)
+        .await
+        .context("tailscale status")??;
+    let peers = urc_common::tailscale::list_peers(&json);
+
+    if let Some(peer) = urc_common::tailscale::resolve_peer(&peers, host_id) {
+        if !peer.online {
+            anyhow::bail!(
+                "'{}' is offline on Tailscale. Wake the machine or check it is logged in.",
+                peer.name
+            );
+        }
+        info!(name = %peer.name, ip = %peer.ipv4, "connecting via Tailscale");
+        tls_forward::spawn_tls_forward(&peer.ipv4, DEFAULT_TLS_LISTEN_PORT, local_port).await?;
+        launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file)?;
+        return Ok(());
+    }
+
+    if !cli.coordinator.trim().is_empty() {
+        info!("not found on Tailscale, trying coordinator relay");
+        return connect_via_coordinator(cli, host_id, local_port, viewer, password_file).await;
+    }
+
+    anyhow::bail!(
+        "no machine named '{host_id}' on your tailnet.\nRun: urc hosts\nMachines must use the same Tailscale account and have URC installed."
+    );
+}
+
+fn launch_viewer(
+    viewer: &str,
+    local_port: u16,
+    mac_cmd_to_super: bool,
+    password_file: Option<&std::path::Path>,
+) -> Result<()> {
+    let creds = "/etc/urc/credentials";
+    let mut cmd = Command::new(viewer);
+    cmd.arg(format!("127.0.0.1:{local_port}"));
+    if mac_cmd_to_super {
+        cmd.env("URC_MAC_CMD_TO_SUPER", "1");
+    }
+    if let Some(pw) = password_file {
+        cmd.arg("-PasswordFile").arg(pw);
+    } else if std::path::Path::new(creds).is_readable() {
+        if let Ok(text) = std::fs::read_to_string(creds) {
+            for line in text.lines() {
+                if let Some(rest) = line.strip_prefix("URC_VNC_PASSWORD=") {
+                    let tmp = std::env::temp_dir().join("urc-vnc-pass");
+                    std::fs::write(&tmp, format!("{rest}\n"))?;
+                    cmd.arg("-PasswordFile").arg(&tmp);
+                    break;
+                }
+            }
+        }
+    }
+
+    info!(%local_port, "launching VNC viewer");
+    let status = cmd.status().context("vncviewer")?;
+    if !status.success() {
+        anyhow::bail!("viewer exited with {status}");
+    }
+    Ok(())
+}
+
+trait PathReadable {
+    fn is_readable(&self) -> bool;
+}
+
+impl PathReadable for std::path::Path {
+    fn is_readable(&self) -> bool {
+        std::fs::OpenOptions::new().read(true).open(self).is_ok()
+    }
+}
+
+async fn connect_via_coordinator(
+    cli: &Cli,
+    host_id: &str,
+    local_port: u16,
+    viewer: &str,
+    password_file: Option<&std::path::Path>,
+) -> Result<()> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::{connect_async, tungstenite::Message};
+
+    let (ws, _) = connect_async(&cli.coordinator)
+        .await
+        .context("coordinator")?;
     let (mut write, mut read) = ws.split();
 
     let connect = ClientMessage::Connect {
@@ -103,57 +212,32 @@ async fn connect_host(
         .await?;
 
     let mut session_id = None;
-    let mut direct_tailscale = None;
 
     while let Some(Ok(Message::Text(text))) = read.next().await {
         if let Ok(CoordinatorMessage::ConnectOk {
-            session_id: sid,
-            relay_mode,
+            session_id: sid, ..
         }) = parse_ws_message(&text)
         {
             session_id = Some(sid);
-            info!(?relay_mode, %sid, "connection approved");
             break;
         } else if let Ok(CoordinatorMessage::ConnectErr { reason }) = parse_ws_message(&text) {
             anyhow::bail!("connect failed: {reason}");
-        } else if text.starts_with("Direct connect:") {
-            direct_tailscale = Some(text.clone());
         } else if let Ok(CoordinatorMessage::RelayHint { session_id: sid, .. }) =
             parse_ws_message(&text)
         {
             session_id = Some(sid);
+            break;
         }
     }
 
     let session_id = session_id.context("no session from coordinator")?;
-
-    if let Some(hint) = direct_tailscale {
-        info!(%hint, "use direct path when on Tailscale");
-    }
-
-    // Local port forward via relay websocket
-    start_local_forward(&cli.coordinator, session_id, local_port).await?;
-
-    let mut cmd = Command::new(viewer);
-    cmd.arg(format!("127.0.0.1:{local_port}"));
-    if cli.mac_cmd_to_super {
-        cmd.env("URC_MAC_CMD_TO_SUPER", "1");
-    }
-    if let Some(pw) = password_file {
-        cmd.arg("-PasswordFile").arg(pw);
-    }
-
-    info!(%local_port, "launching VNC viewer");
-  info!("Mac tip: Cmd maps to Super when URC_MAC_CMD_TO_SUPER=1; use TigerVNC for best clipboard");
-
-    let status = cmd.status().context("vncviewer")?;
-    if !status.success() {
-        anyhow::bail!("viewer exited with {status}");
-    }
-    Ok(())
+    start_relay_forward(&cli.coordinator, session_id, local_port).await?;
+    launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file)
 }
 
-async fn start_local_forward(coordinator: &str, session_id: Uuid, local_port: u16) -> Result<()> {
+async fn start_relay_forward(coordinator: &str, session_id: Uuid, local_port: u16) -> Result<()> {
+    use tokio::net::TcpListener;
+
     let base = coordinator
         .replace("wss://", "ws://")
         .replace("https://", "ws://")
@@ -162,8 +246,8 @@ async fn start_local_forward(coordinator: &str, session_id: Uuid, local_port: u1
 
     let tunnel_url = format!("{base}/tunnel/client/{session_id}");
     let listener = TcpListener::bind(("127.0.0.1", local_port)).await?;
-
     let tunnel_url_clone = tunnel_url.clone();
+
     tokio::spawn(async move {
         loop {
             let Ok((mut local, _)) = listener.accept().await else {
@@ -182,7 +266,12 @@ async fn start_local_forward(coordinator: &str, session_id: Uuid, local_port: u1
     Ok(())
 }
 
-async fn pipe_relay(url: &str, local: &mut TcpStream) -> Result<()> {
+async fn pipe_relay(url: &str, local: &mut tokio::net::TcpStream) -> Result<()> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_tungstenite::{connect_async, tungstenite::Message};
+
     let (ws, _) = connect_async(url).await?;
     let (mut ws_sink, mut ws_source) = ws.split();
     let (mut lr, mut lw) = local.split();
@@ -192,8 +281,10 @@ async fn pipe_relay(url: &str, local: &mut TcpStream) -> Result<()> {
             match msg? {
                 Message::Binary(d) => lw.write_all(&d).await?,
                 Message::Text(t) => {
-                    if let Ok(bytes) = base64_decode_payload(&t) {
-                        lw.write_all(&bytes).await?;
+                    if let Ok(msg) = parse_ws_message::<serde_json::Value>(&t) {
+                        if let Some(data) = msg.get("data").and_then(|d| d.as_str()) {
+                            lw.write_all(&STANDARD.decode(data)?).await?;
+                        }
                     }
                 }
                 Message::Close(_) => break,
@@ -219,25 +310,4 @@ async fn pipe_relay(url: &str, local: &mut TcpStream) -> Result<()> {
 
     tokio::try_join!(w2l, l2w)?;
     Ok(())
-}
-
-fn base64_decode_payload(text: &str) -> Result<Vec<u8>> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    if let Ok(msg) = parse_ws_message::<serde_json::Value>(text) {
-        if let Some(data) = msg.get("data").and_then(|d| d.as_str()) {
-            return Ok(STANDARD.decode(data)?);
-        }
-    }
-    Ok(vec![])
-}
-
-async fn reqwest_get(url: &str) -> Result<String> {
-    let output = std::process::Command::new("curl")
-        .args(["-sf", url])
-        .output()
-        .context("curl")?;
-    if !output.status.success() {
-        anyhow::bail!("HTTP request failed");
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }

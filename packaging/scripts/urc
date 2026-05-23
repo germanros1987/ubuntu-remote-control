@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# User-facing wrapper — connect to remote PCs without remembering flags.
+# User-facing wrapper — discover PCs on Tailscale and connect.
 set -euo pipefail
 
 CLIENT_ENV="/etc/urc/client.env"
@@ -10,41 +10,43 @@ shift || true
 
 case "$cmd" in
   connect|c)
-  [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
-  host="${1:-${URC_DEFAULT_HOST:-}}"
-  if [[ -z "$host" ]]; then
-    echo "Usage: urc connect HOST_ID" >&2
-    exit 1
-  fi
-  exec urc-client --coordinator "${URC_COORDINATOR:-ws://127.0.0.1:21150/ws/client}" \
-    --token "${URC_TOKEN:-changeme}" \
-    connect "$host"
-  ;;
+    [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
+    host="${1:-${URC_DEFAULT_HOST:-}}"
+    if [[ -z "$host" ]]; then
+      echo "Usage: urc connect NAME" >&2
+      echo "Run: urc hosts" >&2
+      exit 1
+    fi
+    extra=()
+    [[ -n "${URC_COORDINATOR:-}" ]] && extra+=(--coordinator "$URC_COORDINATOR")
+    [[ -n "${URC_TOKEN:-}" ]] && extra+=(--token "$URC_TOKEN")
+    exec urc-client "${extra[@]}" connect "$host"
+    ;;
   status|health)
-  exec urc-agent "${cmd}" "$@"
-  ;;
+    exec urc-agent "${cmd}" "$@"
+    ;;
   hosts)
-  [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
-  base="${URC_COORDINATOR:-ws://127.0.0.1:21150/ws/client}"
-  base="${base%/ws/client}"
-  exec curl -sf "${base}/hosts"
-  ;;
+    [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
+    extra=()
+    [[ -n "${URC_COORDINATOR:-}" ]] && extra+=(--coordinator "$URC_COORDINATOR")
+    exec urc-client "${extra[@]}" hosts
+    ;;
   ""|help|-h|--help)
-  cat <<'EOF'
-urc — Ubuntu Remote Control
+    cat <<'EOF'
+urc — Ubuntu Remote Control (Tailscale)
 
-  urc connect HOST_ID   Open remote desktop
-  urc hosts             List online machines
+  urc hosts             List PCs on your tailnet
+  urc connect NAME      Open remote desktop
   urc status            Agent health (on remote PC)
   urc health            Exit 0 if agent healthy
 
-Install:
-  sudo ./install              Interactive
-  sudo ./install --role agent
+Setup:
+  On each PC to control:  sudo ./install  → choose 1, sign in to Tailscale
+  On your laptop:        sudo ./install  → choose 2, same Tailscale account
 EOF
-  ;;
+    ;;
   *)
-  echo "Unknown command: $cmd (try: urc connect HOST)" >&2
-  exit 1
-  ;;
+    echo "Unknown command: $cmd (try: urc hosts)" >&2
+    exit 1
+    ;;
 esac
