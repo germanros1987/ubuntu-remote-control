@@ -82,7 +82,7 @@ install_tigervnc_viewer() {
       return 1
     fi
   fi
-  if ! sudo -u "$ts_user" -H bash -lc 'brew install --cask tiger-vnc'; then
+  if ! sudo -u "$ts_user" -H bash -lc 'brew install --cask tigervnc'; then
     echo "WARN: TigerVNC Viewer install failed; client will fall back to Screen Sharing" >&2
     return 1
   fi
