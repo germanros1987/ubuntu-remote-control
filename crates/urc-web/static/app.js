@@ -115,16 +115,35 @@ function startVNC() {
 //      itself, where noVNC eats the keystroke), the browser fires a paste event
 //      with the clipboard contents. We forward it the same way.
 async function pasteLocalClipboardToRemote() {
-  if (!rfb) return;
+  let text;
   try {
-    const text = await navigator.clipboard.readText();
-    if (text) {
-      rfb.clipboardPasteFrom(text);
-      setStatus('clipboard sent to remote (Ctrl+V to paste there)', 'ok');
-      setTimeout(() => setStatus('connected', 'ok'), 2500);
-    }
-  } catch (e) {
+    text = await navigator.clipboard.readText();
+  } catch (_) {
     setStatus('clipboard read blocked — grant permission and retry', 'err');
+    return;
+  }
+  if (!text) return;
+  await pushClipboardToRemote(text);
+}
+
+// Writes `text` into the remote's X CLIPBOARD via the agent's HTTP endpoint
+// (which runs `xclip` inside the desktop user's session). Falls back to noVNC's
+// RFB clipboard channel if the HTTP path errors — some older agents predate
+// the endpoint.
+async function pushClipboardToRemote(text) {
+  try {
+    const r = await fetch('/api/clipboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: text,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    setStatus('clipboard sent to remote (Ctrl+V to paste there)', 'ok');
+    setTimeout(() => setStatus('connected', 'ok'), 2500);
+  } catch (e) {
+    if (rfb) rfb.clipboardPasteFrom(text);
+    setStatus('clipboard pushed via VNC fallback', 'ok');
+    setTimeout(() => setStatus('connected', 'ok'), 2500);
   }
 }
 
@@ -142,16 +161,12 @@ $('copy-from-remote').onclick = async () => {
   }
 };
 
-document.addEventListener('paste', (e) => {
+document.addEventListener('paste', async (e) => {
   // Skip when noVNC has focus on the canvas — we want Cmd-V there to reach the
   // remote OS as a real keystroke, not duplicate via the clipboard channel.
   if (e.target && screenEl.contains(e.target)) return;
   const t = e.clipboardData && e.clipboardData.getData('text/plain');
-  if (rfb && t) {
-    rfb.clipboardPasteFrom(t);
-    setStatus('clipboard sent to remote (Ctrl+V to paste there)', 'ok');
-    setTimeout(() => setStatus('connected', 'ok'), 2500);
-  }
+  if (t) await pushClipboardToRemote(t);
 });
 
 $('disconnect').onclick = () => {

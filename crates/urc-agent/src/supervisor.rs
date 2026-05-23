@@ -86,12 +86,17 @@ async fn run_one_cycle(
     backend_mgr.start().await?;
     let vnc_port = 5900u16;
 
-    // Unified web app: serves SPA, WebSocket-to-VNC bridge, files API.
+    // Unified web app: serves SPA, WebSocket-to-VNC bridge, files API, clipboard helper.
     let web_handle = if let Some(root) = &config.files_root {
         let bind: std::net::SocketAddr =
             ([127, 0, 0, 1], urc_common::DEFAULT_WEB_INTERNAL_PORT).into();
+        let desktop = urc_web::DesktopSession {
+            username: session.username.clone(),
+            display: session.display.clone().unwrap_or_else(|| ":0".to_string()),
+            xauthority: session.xauthority.clone(),
+        };
         Some(
-            urc_web::spawn_web_server(PathBuf::from(root), bind, vnc_port).await?,
+            urc_web::spawn_web_server(PathBuf::from(root), bind, vnc_port, desktop).await?,
         )
     } else {
         None

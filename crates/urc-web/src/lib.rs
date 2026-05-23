@@ -14,18 +14,27 @@ use axum::{
     extract::{ws::Message, Path, WebSocketUpgrade},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use rust_embed::RustEmbed;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::process::Stdio;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, info, warn};
+
+/// Identity for running clipboard helpers (xclip) inside the user's X session.
+#[derive(Clone)]
+pub struct DesktopSession {
+    pub username: String,
+    pub display: String,
+    pub xauthority: Option<String>,
+}
 
 #[derive(RustEmbed)]
 #[folder = "$CARGO_MANIFEST_DIR/static"]
@@ -36,7 +45,9 @@ struct StaticAssets;
 /// * `files_root` — directory exposed by the `/api/*` file API.
 /// * `vnc_port` — localhost TCP port where the VNC server is listening; the
 ///   WebSocket bridge proxies raw bytes there.
-pub fn web_router(files_root: PathBuf, vnc_port: u16) -> Router {
+/// * `desktop` — the desktop user + display so the clipboard endpoint can run
+///   `xclip` inside that X session.
+pub fn web_router(files_root: PathBuf, vnc_port: u16, desktop: DesktopSession) -> Router {
     // vnc_port is captured by the handler closure — no shared State extractor needed,
     // so this router stays state-less and can be merged with `urc_files::files_router`
     // (which carries its own state internally).
@@ -45,11 +56,21 @@ pub fn web_router(files_root: PathBuf, vnc_port: u16) -> Router {
         get(move |ws: WebSocketUpgrade| async move { vnc_ws_handler(ws, vnc_port).await }),
     );
 
+    let clipboard_user = desktop.clone();
+    let clipboard_route = Router::new().route(
+        "/api/clipboard",
+        post(move |body: String| {
+            let d = clipboard_user.clone();
+            async move { set_clipboard_handler(d, body).await }
+        }),
+    );
+
     Router::new()
         .route("/", get(serve_index))
-        .route("/{*path}", get(serve_asset))
         .merge(ws_route)
+        .merge(clipboard_route)
         .nest("/api", urc_files::files_router(files_root))
+        .route("/{*path}", get(serve_asset))
         .layer(TraceLayer::new_for_http())
 }
 
@@ -58,8 +79,9 @@ pub async fn spawn_web_server(
     files_root: PathBuf,
     addr: SocketAddr,
     vnc_port: u16,
+    desktop: DesktopSession,
 ) -> Result<JoinHandle<()>> {
-    let app = web_router(files_root, vnc_port);
+    let app = web_router(files_root, vnc_port, desktop);
     let listener = TcpListener::bind(addr).await?;
     info!(%addr, vnc_port, "urc-web listening (unified VNC + files + SPA)");
     Ok(tokio::spawn(async move {
@@ -67,6 +89,67 @@ pub async fn spawn_web_server(
             warn!(error = %e, "urc-web server exited");
         }
     }))
+}
+
+/// Write the request body into the desktop user's X CLIPBOARD selection.
+/// Fall back to PRIMARY too so Linux apps that paste from middle-click work.
+async fn set_clipboard_handler(desktop: DesktopSession, text: String) -> Response {
+    // CLIPBOARD is what Ctrl+V uses; PRIMARY is for middle-click paste.
+    for selection in ["clipboard", "primary"] {
+        if let Err(e) = run_xclip(&desktop, selection, &text).await {
+            warn!(error = %e, selection, "xclip failed");
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+    }
+    (StatusCode::OK, "ok").into_response()
+}
+
+async fn run_xclip(desktop: &DesktopSession, selection: &str, text: &str) -> Result<()> {
+    use tokio::process::Command;
+
+    // Production (systemd) runs urc-agent as root → wrap with `runuser -u USER`
+    // so xclip joins the desktop user's session. Dev/standalone runs as that
+    // user already → spawning xclip directly is enough (runuser refuses unless
+    // we're root).
+    let running_as_target =
+        std::env::var("USER").ok().as_deref() == Some(desktop.username.as_str());
+
+    let mut cmd = if running_as_target {
+        let mut c = Command::new("xclip");
+        c.env("DISPLAY", &desktop.display);
+        if let Some(xauth) = &desktop.xauthority {
+            c.env("XAUTHORITY", xauth);
+        }
+        c.args(["-selection", selection, "-i"]);
+        c
+    } else {
+        let mut c = Command::new("runuser");
+        c.args(["-u", &desktop.username, "--", "env"]);
+        c.arg(format!("DISPLAY={}", desktop.display));
+        if let Some(xauth) = &desktop.xauthority {
+            c.arg(format!("XAUTHORITY={xauth}"));
+        }
+        c.args(["xclip", "-selection", selection, "-i"]);
+        c
+    };
+
+    // `xclip -i` forks and the child stays running to serve paste requests.
+    // wait_with_output would hang because the daemonized child inherits the
+    // stderr pipe and never closes it. Set both stdout/stderr to null and use
+    // `child.wait()` so we sync only on the parent's exit.
+    cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+
+    let mut child = cmd.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes()).await?;
+        stdin.flush().await?;
+        drop(stdin);
+    }
+    let status = child.wait().await?;
+    if !status.success() {
+        anyhow::bail!("xclip {selection} exited {status}");
+    }
+    Ok(())
 }
 
 async fn serve_index() -> Response {

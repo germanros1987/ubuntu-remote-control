@@ -23,7 +23,12 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(18080);
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
-    let handle = urc_web::spawn_web_server(files_root, addr, vnc_port).await?;
+    let desktop = urc_web::DesktopSession {
+        username: std::env::var("USER").unwrap_or_else(|_| "nobody".into()),
+        display: std::env::var("DISPLAY").unwrap_or_else(|_| ":0".into()),
+        xauthority: std::env::var("XAUTHORITY").ok(),
+    };
+    let handle = urc_web::spawn_web_server(files_root, addr, vnc_port, desktop).await?;
     println!("urc-web standalone on http://{addr}/");
     handle.await?;
     Ok(())
