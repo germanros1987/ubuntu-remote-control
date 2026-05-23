@@ -32,8 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control
 **macOS** (client only — same Tailscale account):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
-# Detects macOS and installs client + Tailscale automatically
-# VNC viewer: brew install --cask tigervnc-viewer
+# Detects macOS — client + Tailscale; remote desktop via built-in Screen Sharing
 ```
 
 ```bash

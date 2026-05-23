@@ -129,7 +129,7 @@ async fn connect_host(
         }
         info!(name = %peer.name, ip = %peer.ipv4, "connecting via Tailscale");
         tls_forward::spawn_tls_forward(&peer.ipv4, DEFAULT_TLS_LISTEN_PORT, local_port).await?;
-        launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file)?;
+        launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file).await?;
         return Ok(());
     }
 
@@ -171,12 +171,60 @@ fn credentials_paths() -> &'static [&'static str] {
     ]
 }
 
-fn launch_viewer(
+fn read_vnc_password(password_file: Option<&std::path::Path>) -> Option<String> {
+    if let Some(pw) = password_file {
+        return std::fs::read_to_string(pw)
+            .ok()
+            .map(|s| s.lines().next().unwrap_or("").to_string())
+            .filter(|s| !s.is_empty());
+    }
+    for creds in credentials_paths() {
+        if !std::path::Path::new(creds).is_readable() {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(creds) {
+            for line in text.lines() {
+                if let Some(rest) = line.strip_prefix("URC_VNC_PASSWORD=") {
+                    return Some(rest.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// macOS built-in Screen Sharing (`open vnc://…`) — no TigerVNC install required.
+async fn launch_viewer_macos(local_port: u16, password: Option<&str>) -> Result<()> {
+    let url = format!("vnc://127.0.0.1:{local_port}");
+    if let Some(pw) = password {
+        let _ = Command::new("pbcopy").arg(pw).status();
+        println!("VNC password copied to clipboard — paste if Screen Sharing prompts.");
+    }
+    info!(%url, "opening built-in Screen Sharing");
+    Command::new("open")
+        .arg(&url)
+        .status()
+        .context("open Screen Sharing (vnc://)")?;
+    println!("Remote desktop opened in Screen Sharing.");
+    println!("Press Ctrl+C here when you are done (keeps the tunnel up).");
+    tokio::signal::ctrl_c()
+        .await
+        .context("wait for disconnect")?;
+    Ok(())
+}
+
+async fn launch_viewer(
     viewer: &str,
     local_port: u16,
     mac_cmd_to_super: bool,
     password_file: Option<&std::path::Path>,
 ) -> Result<()> {
+    let vnc_password = read_vnc_password(password_file);
+
+    if std::env::consts::OS == "macos" && viewer == "vncviewer" {
+        return launch_viewer_macos(local_port, vnc_password.as_deref()).await;
+    }
+
     let viewer_bin = if viewer == "vncviewer" {
         find_vncviewer()
     } else {
@@ -189,27 +237,16 @@ fn launch_viewer(
     }
     if let Some(pw) = password_file {
         cmd.arg("-PasswordFile").arg(pw);
-    } else {
-        for creds in credentials_paths() {
-            if !std::path::Path::new(creds).is_readable() {
-                continue;
-            }
-            if let Ok(text) = std::fs::read_to_string(creds) {
-                for line in text.lines() {
-                    if let Some(rest) = line.strip_prefix("URC_VNC_PASSWORD=") {
-                        let tmp = std::env::temp_dir().join("urc-vnc-pass");
-                        std::fs::write(&tmp, format!("{rest}\n"))?;
-                        cmd.arg("-PasswordFile").arg(&tmp);
-                        break;
-                    }
-                }
-            }
-            break;
-        }
+    } else if let Some(pw) = &vnc_password {
+        let tmp = std::env::temp_dir().join("urc-vnc-pass");
+        std::fs::write(&tmp, format!("{pw}\n"))?;
+        cmd.arg("-PasswordFile").arg(&tmp);
     }
 
     info!(%local_port, "launching VNC viewer");
-    let status = cmd.status().context("vncviewer")?;
+    let status = tokio::task::spawn_blocking(move || cmd.status())
+        .await
+        .context("vncviewer task")??;
     if !status.success() {
         anyhow::bail!("viewer exited with {status}");
     }
@@ -270,7 +307,7 @@ async fn connect_via_coordinator(
 
     let session_id = session_id.context("no session from coordinator")?;
     start_relay_forward(&cli.coordinator, session_id, local_port).await?;
-    launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file)
+    launch_viewer(viewer, local_port, cli.mac_cmd_to_super, password_file).await
 }
 
 async fn start_relay_forward(coordinator: &str, session_id: Uuid, local_port: u16) -> Result<()> {

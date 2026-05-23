@@ -418,16 +418,7 @@ install_desktop_deps() {
 
 install_client_deps() {
   if is_macos; then
-    echo "==> macOS client dependencies"
-    if command -v brew >/dev/null 2>&1; then
-      if ! command -v vncviewer >/dev/null 2>&1; then
-        echo "==> Installing TigerVNC Viewer (Homebrew)"
-        brew install --cask tigervnc-viewer 2>/dev/null || brew install tigervnc-viewer 2>/dev/null || true
-      fi
-    fi
-    if ! command -v vncviewer >/dev/null 2>&1; then
-      echo "Tip: install a VNC viewer: brew install --cask tigervnc-viewer" >&2
-    fi
+    echo "==> macOS client — uses built-in Screen Sharing (no extra VNC app)"
     return
   fi
   apt-get install -y -qq tigervnc-viewer || true
@@ -569,7 +560,7 @@ print_finish_client() {
   echo ""
   if is_macos; then
     echo "  Config: $CLIENT_ENV_FILE"
-    echo "  (TigerVNC: brew install --cask tigervnc-viewer if needed)"
+    echo "  Viewer: built-in Screen Sharing (opens automatically)"
     echo ""
   fi
   echo "  List your PCs:"
