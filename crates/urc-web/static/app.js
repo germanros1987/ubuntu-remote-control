@@ -55,12 +55,45 @@ function startVNC() {
   });
 }
 
-// Push local clipboard changes back to the remote.
-document.addEventListener('copy', async () => {
+// --- Local → remote clipboard --------------------------------------------
+//
+// Browsers only expose the system clipboard on an explicit user gesture, so
+// we offer two paths:
+//
+//   1. The "Paste" button in the toolbar — reads navigator.clipboard.readText()
+//      and pushes the text into the remote's X clipboard. The user then pastes
+//      inside the remote desktop with the remote OS's paste shortcut (Ctrl+V
+//      on Linux).
+//   2. A page-wide `paste` event listener — when the user presses Cmd-V / Ctrl-V
+//      while the URC tab is focused (but not while typing into the VNC canvas
+//      itself, where noVNC eats the keystroke), the browser fires a paste event
+//      with the clipboard contents. We forward it the same way.
+async function pasteLocalClipboardToRemote() {
+  if (!rfb) return;
   try {
-    const t = await navigator.clipboard.readText();
-    if (rfb && t) rfb.clipboardPasteFrom(t);
-  } catch (_) { /* clipboard read may be blocked; user can also use paste menu */ }
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      rfb.clipboardPasteFrom(text);
+      setStatus('clipboard sent to remote (Ctrl+V to paste there)', 'ok');
+      setTimeout(() => setStatus('connected', 'ok'), 2500);
+    }
+  } catch (e) {
+    setStatus('clipboard read blocked — grant permission and retry', 'err');
+  }
+}
+
+$('paste-to-remote').onclick = pasteLocalClipboardToRemote;
+
+document.addEventListener('paste', (e) => {
+  // Skip when noVNC has focus on the canvas — we want Cmd-V there to reach the
+  // remote OS as a real keystroke, not duplicate via the clipboard channel.
+  if (e.target && screenEl.contains(e.target)) return;
+  const t = e.clipboardData && e.clipboardData.getData('text/plain');
+  if (rfb && t) {
+    rfb.clipboardPasteFrom(t);
+    setStatus('clipboard sent to remote (Ctrl+V to paste there)', 'ok');
+    setTimeout(() => setStatus('connected', 'ok'), 2500);
+  }
 });
 
 $('disconnect').onclick = () => { if (rfb) rfb.disconnect(); };
