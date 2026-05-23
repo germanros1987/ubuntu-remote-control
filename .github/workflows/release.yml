@@ -52,23 +52,23 @@ jobs:
               urc-agent urc-client urc-coordinator urc
           fi
 
-      - name: Release file list
-        if: startsWith(github.ref, 'refs/tags/')
-        id: release_files
-        run: |
-          {
-            echo "${{ matrix.asset }}.tar.gz"
-            if [[ "${{ matrix.asset }}" == "darwin-aarch64" ]]; then
-              echo install
-              echo packaging/install-mac-client.sh
-            fi
-          } > release-files.txt
-
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload macOS release assets
+        if: startsWith(github.ref, 'refs/tags/') && matrix.asset == 'darwin-aarch64'
+        uses: softprops/action-gh-release@v2
         with:
-          files: release-files.txt
-          generate_release_notes: true
+          files: |
+            darwin-aarch64.tar.gz
+            install
+            packaging/install-mac-client.sh
+          fail_on_unmatched_files: true
+
+      - name: Upload Linux release assets
+        if: startsWith(github.ref, 'refs/tags/') && matrix.asset != 'darwin-aarch64'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}.tar.gz
+          fail_on_unmatched_files: true
+          generate_release_notes: ${{ matrix.asset == 'linux-x86_64' }}
 
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch'
