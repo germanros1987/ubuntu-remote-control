@@ -1,7 +1,7 @@
-//! X11 backend using TigerVNC x0vncserver.
+//! X11 backend using TigerVNC screen scraping (x0tigervncserver).
 
 use anyhow::{bail, Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, Duration};
@@ -15,6 +15,7 @@ const LOCAL_PORT: u16 = 5900;
 
 pub struct X11Backend {
     display: String,
+    username: String,
     xauthority: Option<String>,
     password_file: PathBuf,
     child: tokio::sync::Mutex<Option<Child>>,
@@ -42,9 +43,23 @@ impl X11Backend {
 
         Ok(Self {
             display,
+            username: session.username.clone(),
             xauthority: session.xauthority.clone(),
             password_file,
             child: tokio::sync::Mutex::new(None),
+        })
+    }
+
+    fn resolved_xauthority(&self) -> Option<String> {
+        self.xauthority.as_ref().and_then(|p| {
+            if Path::new(p).exists() {
+                Some(p.clone())
+            } else if p.contains('*') {
+                // glob already resolved in session layer when possible
+                None
+            } else {
+                None
+            }
         })
     }
 }
@@ -58,46 +73,58 @@ impl VncBackend for X11Backend {
     async fn start(&self) -> Result<()> {
         let vnc_bin = super::vnc_bin::screen_share_vnc_server()?;
 
-        let mut cmd = Command::new(&vnc_bin);
-        cmd.arg("-display")
-            .arg(&self.display)
-            .arg("-rfbport")
-            .arg(self.local_port().to_string())
-            .arg("-localhost")
-            .arg("yes")
-            .arg("-UseSHM")
-            .arg("1")
-            .arg("-FrameRate")
-            .arg("60")
-            .arg("-SecurityTypes")
-            .arg("VncAuth");
+        // Must run as the logged-in desktop user (root cannot scrape the user's X display).
+        let mut cmd = Command::new("runuser");
+        cmd.args(["-u", &self.username, "--", "env"]);
+        cmd.arg(format!("DISPLAY={}", self.display));
+        if let Some(xauth) = self.resolved_xauthority() {
+            cmd.arg(format!("XAUTHORITY={xauth}"));
+        }
+        cmd.arg(&vnc_bin);
+        cmd.args([
+            "-display",
+            &self.display,
+            "-rfbport",
+            &self.local_port().to_string(),
+            "-localhost",
+            "yes",
+            "-UseSHM",
+            "1",
+            "-FrameRate",
+            "60",
+            "-SecurityTypes",
+            "VncAuth",
+        ]);
 
         if self.password_file.exists() {
             cmd.arg("-PasswordFile").arg(&self.password_file);
         }
 
-        if let Some(xauth) = &self.xauthority {
-            if std::path::Path::new(xauth).exists() {
-                cmd.env("XAUTHORITY", xauth);
-            }
-        }
-        cmd.env("DISPLAY", &self.display);
-
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let child = cmd.spawn().context("spawn screen VNC server")?;
-        info!(display = %self.display, port = LOCAL_PORT, bin = %vnc_bin, "started screen VNC");
+        let child = cmd.spawn().context("spawn screen VNC server as desktop user")?;
+        info!(
+            user = %self.username,
+            display = %self.display,
+            port = LOCAL_PORT,
+            bin = %vnc_bin,
+            "started screen VNC"
+        );
 
         *self.child.lock().await = Some(child);
 
-        for _ in 0..20 {
+        for _ in 0..40 {
             sleep(Duration::from_millis(250)).await;
             if self.health_check().await.unwrap_or(false) {
                 return Ok(());
             }
         }
 
-        bail!("screen VNC server failed health check on port {LOCAL_PORT}")
+        bail!(
+            "screen VNC server failed on port {LOCAL_PORT} (user={}, display={}). \
+             Check: journalctl -u urc-agent -e",
+            self.username, self.display
+        )
     }
 
     async fn stop(&self) -> Result<()> {
@@ -113,4 +140,3 @@ impl VncBackend for X11Backend {
             .is_ok())
     }
 }
-

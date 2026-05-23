@@ -472,6 +472,10 @@ setup_vnc_password() {
   fi
   if printf '%s\n' "$vnc_pass" | "$vncpwd" -f > /etc/urc/vncpasswd 2>/dev/null; then
     chmod 600 /etc/urc/vncpasswd
+    local desktop_user="${SUDO_USER:-}"
+    if [[ -n "$desktop_user" ]]; then
+      chown "$desktop_user:$desktop_user" /etc/urc/vncpasswd
+    fi
     export URC_VNC_PASSWORD_PLAIN="$vnc_pass"
   else
     echo "Note: create VNC password manually:" >&2
@@ -524,24 +528,33 @@ install_systemd_units() {
 }
 
 enable_agent() {
-  systemctl enable --now urc-agent.service
-  systemctl enable --now urc-agent-health.timer
+  systemctl enable urc-agent.service
+  systemctl enable urc-agent-health.timer
   systemctl enable urc-agent-login.path
 }
 
-wait_for_agent_vnc() {
-  echo "==> Waiting for encrypted VNC on port 15900 (needs a logged-in desktop)…"
-  local i
-  for i in $(seq 1 45); do
-    if ss -tlnp 2>/dev/null | grep -qE ':15900[[:space:]]'; then
-      echo "==> Remote desktop port 15900 is ready"
-      return 0
+bootstrap_agent_vnc() {
+  echo "==> Starting remote desktop (VNC on 5900, TLS on 15900)…"
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    systemctl restart urc-agent.service
+    local i
+    for i in $(seq 1 20); do
+      if ss -tlnp 2>/dev/null | grep -qE ':15900[[:space:]]'; then
+        echo "==> Remote desktop ready (port 15900)"
+        return 0
+      fi
+      sleep 2
+    done
+    if [[ "$attempt" -lt 6 ]]; then
+      echo "==> Still waiting (attempt $attempt/6)…"
+      journalctl -u urc-agent -n 2 --no-pager 2>/dev/null | sed 's/^/    /' || true
     fi
-    sleep 2
   done
-  echo "NOTE: Port 15900 is not listening yet." >&2
-  echo "  Log in to the desktop on this PC, then: sudo systemctl restart urc-agent" >&2
-  return 1
+  echo "ERROR: Remote desktop did not start on port 15900." >&2
+  echo "  Ensure you are logged into the graphical desktop on this machine." >&2
+  journalctl -u urc-agent -n 25 --no-pager >&2 || true
+  exit 1
 }
 
 enable_coordinator() {
@@ -586,14 +599,15 @@ print_finish_agent() {
     local ts_ip
     ts_ip="$(tailscale ip -4 2>/dev/null || true)"
     if [[ -n "$ts_ip" ]]; then
-      echo "  Tailscale: $ts_ip (direct TLS on port 15900 when logged in)"
+      echo "  Tailscale: $ts_ip"
     else
       echo "  Tailscale: run 'sudo tailscale up' to finish login"
     fi
   fi
+  echo "  Remote desktop: listening on port 15900 (connect with: urc connect $hid)"
   echo ""
   if [[ "$PROFILE" == "desktop" ]]; then
-    echo "  Reboot once to start the graphical session."
+    echo "  Reboot once to start the graphical session, then re-run this installer."
     echo ""
   fi
 }
@@ -672,14 +686,21 @@ case "$ROLE" in
       install_agent_deps
     fi
     build_and_install_binaries
+    if [[ -f "$REPO_ROOT/Cargo.toml" ]]; then
+      echo "==> Building urc-agent from source (latest fixes)"
+      install_build_deps
+      (cd "$REPO_ROOT" && cargo build --release -p urc-agent)
+      install_file 755 "$REPO_ROOT/target/release/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
+    fi
     setup_agent_config
     if want_tailscale; then
       setup_tailscale
     fi
     install_libexec
     install_systemd_units
+    systemctl daemon-reload
     enable_agent
-    wait_for_agent_vnc || true
+    bootstrap_agent_vnc
     print_finish_agent
     ;;
   client)

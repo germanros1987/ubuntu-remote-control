@@ -115,7 +115,6 @@ impl SessionDetector {
             }
 
             let username = username.unwrap_or_else(|| format!("uid{uid}"));
-            let xauthority = Some(format!("/run/user/{uid}/.mutter-Xwaylandauth.*"));
             let xauth_glob = format!("/run/user/{uid}/.mutter-Xwaylandauth.*");
 
             // Resolve XAUTHORITY for X11
@@ -123,6 +122,12 @@ impl SessionDetector {
                 resolve_xauthority(uid).or(Some(format!("/run/user/{uid}/gdm/Xauthority")))
             } else {
                 glob_xauthority(&xauth_glob).or(resolve_xauthority(uid))
+            };
+
+            let display = if session_type == "x11" {
+                display.or_else(|| user_display_env(&username))
+            } else {
+                display
             };
 
             let desktop = detect_desktop(&username);
@@ -209,6 +214,29 @@ impl SessionDetector {
         };
 
         Self::apply_preference(info, preference)
+    }
+}
+
+fn user_display_env(username: &str) -> Option<String> {
+    let output = Command::new("runuser")
+        .args([
+            "-u",
+            username,
+            "--",
+            "bash",
+            "-lc",
+            "echo \"${DISPLAY:-:0}\"",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
     }
 }
 
