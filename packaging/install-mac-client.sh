@@ -64,7 +64,32 @@ cp -f "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
 cp -f "$URC_BIN_DIR/urc" "$INSTALL_PREFIX/bin/urc"
 chmod 755 "$INSTALL_PREFIX/bin/urc-client" "$INSTALL_PREFIX/bin/urc"
 
-echo "==> macOS client — uses built-in Screen Sharing (no extra VNC app)"
+ts_user="${SUDO_USER:-$USER}"
+
+# Apple Screen Sharing rejects TigerVNC's RFB handshake ("software ... incompatible").
+# Install TigerVNC Viewer for matching client; Screen Sharing remains as fallback.
+install_tigervnc_viewer() {
+  if [[ -d "/Applications/TigerVNC Viewer.app" ]]; then
+    echo "==> TigerVNC Viewer already installed"
+    return 0
+  fi
+  echo "==> Installing TigerVNC Viewer (matches agent's VNC server for reliable connect)"
+  if ! sudo -u "$ts_user" -H bash -lc 'command -v brew >/dev/null 2>&1'; then
+    echo "==> Installing Homebrew"
+    if ! sudo -u "$ts_user" -H bash -lc \
+        'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
+      echo "WARN: Homebrew install failed; client will fall back to Screen Sharing" >&2
+      return 1
+    fi
+  fi
+  if ! sudo -u "$ts_user" -H bash -lc 'brew install --cask tiger-vnc'; then
+    echo "WARN: TigerVNC Viewer install failed; client will fall back to Screen Sharing" >&2
+    return 1
+  fi
+  # Strip Gatekeeper quarantine so first launch does not block.
+  xattr -dr com.apple.quarantine "/Applications/TigerVNC Viewer.app" 2>/dev/null || true
+}
+install_tigervnc_viewer || true
 
 echo "==> Installing Tailscale"
 if ! command -v tailscale >/dev/null 2>&1; then
@@ -105,7 +130,6 @@ ensure_tailscale_cli() {
 }
 ensure_tailscale_cli || true
 
-ts_user="${SUDO_USER:-$USER}"
 hn="$(hostname -s)"
 
 if ! tailscale status --json 2>/dev/null | grep -qE '"BackendState":"Running"|"State":10'; then
@@ -143,7 +167,11 @@ echo "  Client ready"
 echo "============================================"
 echo ""
 echo "  Config: $CLIENT_ENV"
-echo "  Viewer: built-in Screen Sharing (opens automatically)"
+if [[ -d "/Applications/TigerVNC Viewer.app" ]]; then
+  echo "  Viewer: TigerVNC Viewer (opens automatically)"
+else
+  echo "  Viewer: built-in Screen Sharing (TigerVNC Viewer install failed — may hit compatibility errors)"
+fi
 echo ""
 echo "  List your PCs:  urc hosts"
 echo "  Connect:        urc connect NAME"

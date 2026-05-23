@@ -269,7 +269,13 @@ async fn launch_viewer(
     let vnc_password = read_vnc_password(password_file);
 
     if std::env::consts::OS == "macos" && viewer == "vncviewer" {
-        return launch_viewer_macos(local_port, vnc_password.as_deref()).await;
+        // Apple Screen Sharing rejects TigerVNC's RFB handshake on many setups.
+        // Prefer TigerVNC Viewer when present; fall through to generic launcher (find_vncviewer
+        // already returns the /Applications path). Screen Sharing stays as fallback.
+        let tigervnc = "/Applications/TigerVNC Viewer.app/Contents/MacOS/vncviewer";
+        if !std::path::Path::new(tigervnc).is_file() {
+            return launch_viewer_macos(local_port, vnc_password.as_deref()).await;
+        }
     }
 
     let viewer_bin = if viewer == "vncviewer" {
