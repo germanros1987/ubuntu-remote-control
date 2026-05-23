@@ -30,8 +30,29 @@ function vncURL() {
 
 let rfb;
 let lastRemoteClipboard = '';
+let userDisconnected = false;
+let reconnectAttempt = 0;
+let reconnectTimer = null;
+
+function scheduleReconnect() {
+  if (userDisconnected) return;
+  if (reconnectTimer) return;
+  reconnectAttempt += 1;
+  const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 15000);
+  setStatus(`reconnecting in ${(delay / 1000).toFixed(0)}s (attempt ${reconnectAttempt})…`, 'err');
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    startVNC();
+  }, delay);
+}
 
 function startVNC() {
+  // Clean up any prior RFB instance (orphan canvas DOM is recreated by noVNC).
+  if (rfb) {
+    try { rfb.disconnect(); } catch (_) {}
+    rfb = null;
+    screenEl.innerHTML = '';
+  }
   setStatus('connecting…');
   rfb = new RFB(screenEl, vncURL(), { wsProtocols: ['binary'] });
   rfb.scaleViewport  = true;   // fit canvas to local window
@@ -41,10 +62,18 @@ function startVNC() {
   rfb.background     = '#111';
   rfb.showDotCursor  = true;   // tiny dot as the local cursor; remote cursor lives in framebuffer
 
-  rfb.addEventListener('connect',     () => setStatus('connected', 'ok'));
-  rfb.addEventListener('disconnect',  (e) => {
+  rfb.addEventListener('connect', () => {
+    reconnectAttempt = 0;
+    setStatus('connected', 'ok');
+  });
+  rfb.addEventListener('disconnect', (e) => {
     const clean = e.detail && e.detail.clean;
-    setStatus(clean ? 'disconnected' : 'connection lost', 'err');
+    if (userDisconnected) {
+      setStatus('disconnected', 'err');
+      return;
+    }
+    setStatus(clean ? 'disconnected — reconnecting…' : 'connection lost — reconnecting…', 'err');
+    scheduleReconnect();
   });
   rfb.addEventListener('credentialsrequired', () => {
     rfb.sendCredentials({ password: '' }); // server uses SecurityTypes=None
@@ -125,7 +154,21 @@ document.addEventListener('paste', (e) => {
   }
 });
 
-$('disconnect').onclick = () => { if (rfb) rfb.disconnect(); };
+$('disconnect').onclick = () => {
+  userDisconnected = true;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (rfb) rfb.disconnect();
+};
+
+// Page becoming visible (laptop wake, tab refocus) is a good moment to retry
+// immediately instead of waiting out the backoff.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !userDisconnected && reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    startVNC();
+  }
+});
 $('toggle-fullscreen').onclick = () => {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen();
   else document.exitFullscreen();
