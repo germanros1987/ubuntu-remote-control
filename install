@@ -44,7 +44,7 @@ fi
 cleanup() { [[ -n "${URC_KEEP_WORKDIR:-}" ]] || rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
-echo "==> Ubuntu Remote Control (installer unified-webui)"
+echo "==> Ubuntu Remote Control (installer pretty-output)"
 
 GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
 BR="${URC_BRANCH:-main}"
@@ -197,14 +197,37 @@ build_mac_client_binaries() {
   if [[ -f "$root/target/release/urc-client" ]] && [[ -f "$root/target/release/urc" ]]; then
     return 0
   fi
-  echo "==> Building Mac client (first install — may take a few minutes)"
   if ! sudo -u "$build_user" bash -lc 'command -v cargo >/dev/null 2>&1'; then
-    echo "==> Installing Rust (rustup)"
-    sudo -u "$build_user" bash -lc 'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q --default-toolchain stable'
+    quiet_run "Installing Rust toolchain (rustup)" \
+      sudo -u "$build_user" bash -lc \
+        'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q --default-toolchain stable'
   fi
-  sudo -u "$build_user" bash -lc "cd '$root' && source \"\$HOME/.cargo/env\" && cargo build --release -p urc-client"
+  quiet_run "Building Mac client (first install: 1-3 min)" \
+    sudo -u "$build_user" bash -lc \
+      "cd '$root' && source \"\$HOME/.cargo/env\" && cargo build --quiet --release -p urc-client"
   cp -f "$root/packaging/scripts/urc" "$root/target/release/urc"
   chmod +x "$root/target/release/urc-client" "$root/target/release/urc"
+}
+
+# Mirror of packaging/install.sh's quiet_step — keeps the top-level installer
+# output tight (one line per step) and on failure surfaces the last log lines.
+quiet_run() {
+  local label="$1"; shift
+  local log; log="$(mktemp /tmp/urc-step.XXXXXX.log)"
+  local start=$SECONDS
+  printf '==> %s ... ' "$label"
+  local rc=0
+  "$@" >"$log" 2>&1 || rc=$?
+  local dt=$((SECONDS - start))
+  if [[ $rc -eq 0 ]]; then
+    printf '✓ (%ds)\n' "$dt"
+    rm -f "$log"
+    return 0
+  fi
+  printf '✗ (%ds)\n' "$dt"
+  echo "--- last 40 lines of $log ---" >&2
+  tail -40 "$log" >&2
+  return $rc
 }
 
 if [[ "$(uname -s)" == "Darwin" ]] && { [[ "${1:-}" == "--role" ]] && [[ "${2:-}" == "client" ]] || [[ -z "${1:-}" ]]; }; then

@@ -123,6 +123,28 @@ install_file() {
   chmod "$mode" "$dest"
 }
 
+# Run a long step quietly: write its output to a log file, show a spinner with
+# the elapsed seconds, and on failure spill the last 40 lines of the log so the
+# user has something to act on. Keeps the installer banner clean.
+quiet_step() {
+  local label="$1"; shift
+  local log; log="$(mktemp /tmp/urc-step.XXXXXX.log)"
+  local start=$SECONDS
+  printf '==> %s ... ' "$label"
+  local rc=0
+  "$@" >"$log" 2>&1 || rc=$?
+  local dt=$((SECONDS - start))
+  if [[ $rc -eq 0 ]]; then
+    printf '✓ (%ds)\n' "$dt"
+    rm -f "$log"
+    return 0
+  fi
+  printf '✗ (%ds)\n' "$dt"
+  echo "--- last 40 lines of $log ---" >&2
+  tail -40 "$log" >&2
+  return $rc
+}
+
 has_desktop() {
   is_linux || return 1
   dpkg -l ubuntu-desktop-minimal 2>/dev/null | grep -q '^ii' || \
@@ -141,9 +163,11 @@ tailscale_mode() {
 }
 
 setup_tailscale() {
-  echo "==> Installing Tailscale"
   if ! command -v tailscale >/dev/null 2>&1; then
-    curl -fsSL https://tailscale.com/install.sh | sh
+    quiet_step "Installing Tailscale" \
+      bash -c 'curl -fsSL https://tailscale.com/install.sh | sh'
+  else
+    echo "==> Tailscale already installed"
   fi
   systemctl enable --now tailscaled 2>/dev/null || true
 
@@ -417,11 +441,12 @@ install_client_binaries() {
     return
   fi
   install_build_deps
-  echo "==> Building URC client (first install — may take a few minutes)"
   if is_macos; then
-    mac_run_user "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" && cargo build --release -p urc-client"
+    quiet_step "Building URC client (first install: 1-3 min)" \
+      mac_run_user "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" && cargo build --quiet --release -p urc-client"
   else
-    linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release -p urc-client"
+    quiet_step "Building URC client (first install: 1-3 min)" \
+      linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --quiet --release -p urc-client"
   fi
   install_file 755 "$REPO_ROOT/target/release/urc-client" "$INSTALL_PREFIX/bin/urc-client"
   install_file 755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
@@ -441,8 +466,8 @@ build_and_install_binaries() {
     return
   fi
   install_build_deps
-  echo "==> Building URC (first install — may take a few minutes)"
-  linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release"
+  quiet_step "Building URC (first install: 1-3 min)" \
+    linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --quiet --release"
   install_file 755 target/release/urc-agent "$INSTALL_PREFIX/bin/urc-agent"
   install_file 755 target/release/urc-client "$INSTALL_PREFIX/bin/urc-client"
   install_file 755 target/release/urc-coordinator "$INSTALL_PREFIX/bin/urc-coordinator"
