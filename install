@@ -109,6 +109,15 @@ if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
       url="https://github.com/${GH}/releases/download/${tag}/${PREBUILT_ASSET}.tar.gz"
       if curl -fsSL "$url" 2>/dev/null | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
         echo "==> Using prebuilt binaries (${PREBUILT_ASSET} from ${tag})"
+        # macOS: copy with cp before packaging/install.sh (BSD install(1) is unreliable)
+        if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$WORKDIR/bin/urc-client" ]]; then
+          echo "==> Installing client to /usr/local/bin"
+          mkdir -p /usr/local/bin
+          cp -f "$WORKDIR/bin/urc-client" /usr/local/bin/urc-client
+          cp -f "$WORKDIR/bin/urc" /usr/local/bin/urc
+          chmod 755 /usr/local/bin/urc-client /usr/local/bin/urc
+          export URC_CLIENT_BINARIES_INSTALLED=1
+        fi
         export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
         exec bash "$WORKDIR/packaging/install.sh" "$@"
       fi

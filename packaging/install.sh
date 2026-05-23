@@ -111,11 +111,16 @@ sed_inplace() {
   fi
 }
 
-# GNU install -D is not portable (macOS BSD install breaks with INS@ temp files).
+# Do not use macOS/BSD install(1) — it breaks with GNU-style -D (INS@ temp files).
 install_file() {
   local mode="$1" src="$2" dest="$3"
+  if [[ ! -e "$src" ]]; then
+    echo "ERROR: missing install source: $src" >&2
+    exit 1
+  fi
   mkdir -p "$(dirname "$dest")"
-  install -m "$mode" "$src" "$dest"
+  cp -f "$src" "$dest"
+  chmod "$mode" "$dest"
 }
 
 has_desktop() {
@@ -360,6 +365,10 @@ install_build_deps() {
 }
 
 install_client_binaries() {
+  if [[ -n "${URC_CLIENT_BINARIES_INSTALLED:-}" ]]; then
+    echo "==> Client binaries already installed"
+    return
+  fi
   if [[ -n "${URC_SKIP_BUILD:-}" ]] && [[ -n "${URC_BIN_DIR:-}" ]]; then
     echo "==> Installing prebuilt client"
     install_file 755 "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
