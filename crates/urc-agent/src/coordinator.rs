@@ -57,6 +57,7 @@ impl CoordinatorClient {
 
         if self.config.coordinator_url.trim().is_empty() {
             info!("coordinator disabled — Tailscale-only mode");
+            self.connected.store(true, Ordering::Relaxed);
             loop {
                 tokio::time::sleep(Duration::from_secs(3600)).await;
             }

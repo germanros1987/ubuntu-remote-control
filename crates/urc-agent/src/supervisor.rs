@@ -172,7 +172,8 @@ async fn health_loop(
 
     loop {
         let vnc_ok = stack.backend.health_check().await;
-        let coord_ok = stack.coordinator.is_connected();
+        let needs_coordinator = !config.coordinator_url.trim().is_empty();
+        let coord_ok = !needs_coordinator || stack.coordinator.is_connected();
         let files_ok = tcp_open(urc_common::DEFAULT_FILES_PORT).await;
 
         let healthy = vnc_ok && coord_ok;

@@ -63,8 +63,11 @@ pub async fn probe_health(config: &AgentConfig) -> AgentStatus {
     let vnc_port_open = tcp_open(5900).await;
     let files_port_open = tcp_open(urc_common::DEFAULT_FILES_PORT).await;
 
+    let needs_coordinator = !config.coordinator_url.trim().is_empty();
     let status_path = PathBuf::from(STATUS_PATH);
-    let coordinator_connected = if let Ok(file) = AgentStatus::read(&status_path) {
+    let coordinator_connected = if !needs_coordinator {
+        true
+    } else if let Ok(file) = AgentStatus::read(&status_path) {
         file.is_fresh() && file.coordinator_connected
     } else {
         false
