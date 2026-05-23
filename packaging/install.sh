@@ -279,6 +279,23 @@ configure_role_interactive() {
 
 # --- deps & build ---
 
+mac_build_user() {
+  echo "${SUDO_USER:-${USER:-root}}"
+}
+
+mac_run_user() {
+  local build_user
+  build_user="$(mac_build_user)"
+  if [[ "$build_user" == "root" ]]; then
+    return 1
+  fi
+  sudo -u "$build_user" -H bash -lc "$1"
+}
+
+mac_has_cargo() {
+  mac_run_user 'source "$HOME/.cargo/env" 2>/dev/null; cargo --version' >/dev/null 2>&1
+}
+
 install_base_packages() {
   echo "==> Installing system packages"
   if is_macos; then
@@ -295,26 +312,24 @@ install_base_packages() {
 
 install_build_deps() {
   if is_macos; then
-    local build_user="${SUDO_USER:-$USER}"
-    local cargo_ok=false
-    if [[ "$build_user" != "root" ]] && sudo -u "$build_user" -H cargo --version >/dev/null 2>&1; then
-      cargo_ok=true
-    elif cargo --version >/dev/null 2>&1; then
-      cargo_ok=true
-    fi
-    if $cargo_ok; then
+    if mac_has_cargo; then
       return
     fi
     echo "==> Rust not found — install via rustup (one-time)"
-    if [[ "$build_user" != "root" ]]; then
-      sudo -u "$build_user" -H bash -c 'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q' || true
-      sudo -u "$build_user" -H bash -c 'source "$HOME/.cargo/env" && rustup default stable' 2>/dev/null || true
+    mac_run_user 'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q' || true
+    mac_run_user 'source "$HOME/.cargo/env" && rustup default stable' 2>/dev/null || true
+    if mac_has_cargo; then
+      return
     fi
-    if ! sudo -u "$build_user" -H cargo --version >/dev/null 2>&1; then
-      echo "ERROR: Install Rust, then re-run: curl https://sh.rustup.rs | sh" >&2
-      exit 1
+    local build_user home
+    build_user="$(mac_build_user)"
+    home="$(eval echo "~${build_user}")"
+    if [[ -x "${home}/.cargo/bin/cargo" ]]; then
+      return
     fi
-    return
+    echo "ERROR: Rust installed but cargo not in PATH." >&2
+    echo "  Run:  source \"\$HOME/.cargo/env\"  &&  re-run the installer" >&2
+    exit 1
   fi
   # rustup shim without a default toolchain breaks `cargo build`
   if command -v rustup >/dev/null 2>&1; then
@@ -346,9 +361,8 @@ install_client_binaries() {
   fi
   install_build_deps
   echo "==> Building URC client (first install — may take a few minutes)"
-  local build_user="${SUDO_USER:-$USER}"
-  if is_macos && [[ "$build_user" != "root" ]]; then
-    sudo -u "$build_user" -H bash -c "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release -p urc-client"
+  if is_macos; then
+    mac_run_user "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" && cargo build --release -p urc-client"
   else
     cd "$REPO_ROOT"
     cargo build --release -p urc-client
