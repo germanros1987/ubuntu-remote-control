@@ -29,6 +29,8 @@ function vncURL() {
 }
 
 let rfb;
+let lastRemoteClipboard = '';
+
 function startVNC() {
   setStatus('connecting…');
   rfb = new RFB(screenEl, vncURL(), { wsProtocols: ['binary'] });
@@ -48,9 +50,24 @@ function startVNC() {
     rfb.sendCredentials({ password: '' }); // server uses SecurityTypes=None
   });
   rfb.addEventListener('clipboard', (e) => {
-    // remote→local clipboard: best-effort, requires a user gesture in some browsers
-    if (e.detail && e.detail.text && navigator.clipboard) {
-      navigator.clipboard.writeText(e.detail.text).catch(() => {});
+    const text = e.detail && e.detail.text;
+    if (!text) return;
+    lastRemoteClipboard = text;
+    // Try a silent write first — browsers allow it shortly after a user gesture.
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(
+        () => {
+          setStatus('remote clipboard copied locally', 'ok');
+          setTimeout(() => setStatus('connected', 'ok'), 2000);
+          $('copy-from-remote').hidden = true;
+        },
+        () => {
+          // Browser blocked us — surface the "Copy from Remote" button so the
+          // user can grant the gesture explicitly.
+          $('copy-from-remote').hidden = false;
+          setStatus('remote sent clipboard — click 📥 Copy to receive', 'ok');
+        },
+      );
     }
   });
 }
@@ -83,6 +100,18 @@ async function pasteLocalClipboardToRemote() {
 }
 
 $('paste-to-remote').onclick = pasteLocalClipboardToRemote;
+
+$('copy-from-remote').onclick = async () => {
+  if (!lastRemoteClipboard) return;
+  try {
+    await navigator.clipboard.writeText(lastRemoteClipboard);
+    $('copy-from-remote').hidden = true;
+    setStatus('remote clipboard copied locally', 'ok');
+    setTimeout(() => setStatus('connected', 'ok'), 2000);
+  } catch (_) {
+    setStatus('clipboard write blocked — grant permission in browser settings', 'err');
+  }
+};
 
 document.addEventListener('paste', (e) => {
   // Skip when noVNC has focus on the canvas — we want Cmd-V there to reach the
