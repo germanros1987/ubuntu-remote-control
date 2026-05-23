@@ -44,7 +44,7 @@ fi
 cleanup() { [[ -n "${URC_KEEP_WORKDIR:-}" ]] || rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
-echo "==> Ubuntu Remote Control (installer mac-tar-fix)"
+echo "==> Ubuntu Remote Control (installer mac-tar-fix-2)"
 
 GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
 BR="${URC_BRANCH:-main}"
@@ -126,6 +126,13 @@ for f in packaging/install.sh packaging/install-mac-client.sh packaging/scripts/
   fetch "$f"
 done
 chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/install-mac-client.sh" "$WORKDIR/packaging/scripts/"*
+
+# Darwin: fetch loop above ran as root and seeded root-owned files into a BUILD_USER workdir.
+# Hand ownership back before tarball extract (runs as BUILD_USER) — otherwise tar cannot unlink
+# the pre-existing root-owned files ("Can't unlink already-existing object: Permission denied").
+if [[ "$(uname -s)" == "Darwin" && -n "$BUILD_USER" && "$BUILD_USER" != "root" ]]; then
+  chown -R "$BUILD_USER" "$WORKDIR"
+fi
 
 # Prebuilt binaries from GitHub Releases
 if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
