@@ -1,4 +1,6 @@
 /target/
+.specstory/
+.cursorindexingignore
 **/*.rs.bk
 .DS_Store
 *.deb
