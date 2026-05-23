@@ -21,15 +21,23 @@ curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control
   sudo bash -s -- --role agent
 ```
 
-### 2. Your laptop
+### 2. Your laptop (Linux or macOS)
 
+**Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
 # Choose: 2) Laptop I connect FROM
 ```
 
+**macOS** (client only — same Tailscale account):
 ```bash
-# Or non-interactive:
+curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
+# Detects macOS and installs client + Tailscale automatically
+# VNC viewer: brew install --cask tigervnc-viewer
+```
+
+```bash
+# Non-interactive (Linux or Mac):
 curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
   sudo bash -s -- --role client
 ```
@@ -48,7 +56,7 @@ That is it — no coordinator URL, no tokens to copy, no host IDs to configure b
 | Step | What URC does |
 |------|----------------|
 | Install on PC | Agent + TigerVNC + Tailscale; agent listens on TLS port 15900 on the tailnet |
-| Install on laptop | Client + Tailscale |
+| Install on laptop (Linux or Mac) | Client + Tailscale |
 | `urc hosts` | Reads your tailnet from `tailscale status` |
 | `urc connect NAME` | Resolves NAME → Tailscale IP → encrypted VNC |
 

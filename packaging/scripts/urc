@@ -2,7 +2,8 @@
 # User-facing wrapper — discover PCs on Tailscale and connect.
 set -euo pipefail
 
-CLIENT_ENV="/etc/urc/client.env"
+CLIENT_ENV="/usr/local/etc/urc/client.env"
+[[ -f "$CLIENT_ENV" ]] || CLIENT_ENV="/etc/urc/client.env"
 [[ -f "$CLIENT_ENV" ]] || CLIENT_ENV="${HOME}/.config/urc/client.env"
 
 cmd="${1:-}"
@@ -41,8 +42,8 @@ urc — Ubuntu Remote Control (Tailscale)
   urc health            Exit 0 if agent healthy
 
 Setup:
-  On each PC to control:  sudo ./install  → choose 1, sign in to Tailscale
-  On your laptop:        sudo ./install  → choose 2, same Tailscale account
+  Ubuntu PC:   curl install | sudo bash  → choose 1
+  Mac/Linux laptop: same installer → choose 2 (macOS auto-selects client)
 EOF
     ;;
   *)

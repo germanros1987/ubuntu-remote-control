@@ -89,11 +89,19 @@ chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/scripts/"*
 # Prebuilt binaries from GitHub Releases (fast path — no Rust on target)
 if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
   ARCH="$(uname -m)"
-  case "$ARCH" in
-    x86_64|amd64) PREBUILT_ASSET="linux-x86_64" ;;
-    aarch64|arm64) PREBUILT_ASSET="linux-aarch64" ;;
-    *) PREBUILT_ASSET="" ;;
-  esac
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    case "$ARCH" in
+      arm64) PREBUILT_ASSET="darwin-aarch64" ;;
+      x86_64) PREBUILT_ASSET="darwin-x86_64" ;;
+      *) PREBUILT_ASSET="" ;;
+    esac
+  else
+    case "$ARCH" in
+      x86_64|amd64) PREBUILT_ASSET="linux-x86_64" ;;
+      aarch64|arm64) PREBUILT_ASSET="linux-aarch64" ;;
+      *) PREBUILT_ASSET="" ;;
+    esac
+  fi
   if [[ -n "$PREBUILT_ASSET" ]]; then
     PREBUILT_URL="https://github.com/${GH}/releases/latest/download/${PREBUILT_ASSET}.tar.gz"
     mkdir -p "$WORKDIR/bin"

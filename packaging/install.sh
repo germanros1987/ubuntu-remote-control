@@ -20,16 +20,27 @@ TAILSCALE_AUTH_KEY="${URC_TAILSCALE_AUTH_KEY:-}"
 NONINTERACTIVE=false
 INSTALL_PREFIX="/usr/local"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CREDENTIALS_FILE="/etc/urc/credentials"
+OS="$(uname -s)"
+
+is_macos() { [[ "$OS" == "Darwin" ]]; }
+is_linux() { [[ "$OS" == "Linux" ]]; }
+
+if is_macos; then
+  URC_ETC="${URC_ETC:-/usr/local/etc/urc}"
+else
+  URC_ETC="${URC_ETC:-/etc/urc}"
+fi
+CREDENTIALS_FILE="$URC_ETC/credentials"
+CLIENT_ENV_FILE="$URC_ETC/client.env"
 
 usage() {
   cat <<'EOF'
 Ubuntu Remote Control — installer (Tailscale turn-key)
 
   sudo ./install                     Interactive: PC to control or laptop client
-  sudo ./install --role agent        Remote-into this machine (+ Tailscale)
-  sudo ./install --role client       Laptop — list/connect via Tailscale
-  sudo ./install --role coordinator  Optional VPS relay (advanced)
+  sudo ./install --role agent        Remote-into this machine (+ Tailscale, Linux only)
+  sudo ./install --role client       Laptop/Mac — list/connect via Tailscale
+  sudo ./install --role coordinator  Optional VPS relay (Linux only)
 
 Options:
   --coordinator-url URL   Optional relay (omit for Tailscale-only)
@@ -92,7 +103,16 @@ prompt() {
   fi
 }
 
+sed_inplace() {
+  if is_macos; then
+    sed -i '' "$@"
+  else
+    sed -i "$@"
+  fi
+}
+
 has_desktop() {
+  is_linux || return 1
   dpkg -l ubuntu-desktop-minimal 2>/dev/null | grep -q '^ii' || \
   dpkg -l ubuntu-desktop 2>/dev/null | grep -q '^ii' || \
   dpkg -l gnome-shell 2>/dev/null | grep -q '^ii'
@@ -115,41 +135,55 @@ setup_tailscale() {
   fi
   systemctl enable --now tailscaled 2>/dev/null || true
 
+  local ts_user="${SUDO_USER:-${USER:-root}}"
+  local hn="${HOST_ID:-$(hostname -s)}"
+
   if ! tailscale status --json 2>/dev/null | grep -qE '"BackendState":"Running"|"State":10'; then
     if [[ -n "$TAILSCALE_AUTH_KEY" ]]; then
-      tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --accept-routes
+      if is_macos && [[ "$ts_user" != "root" ]]; then
+        sudo -u "$ts_user" tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --accept-routes
+      else
+        tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --accept-routes
+      fi
     elif ! $NONINTERACTIVE && [[ -r /dev/tty ]]; then
       echo "Sign in to Tailscale (open the URL below if prompted):" >/dev/tty
-      tailscale up </dev/tty >/dev/tty 2>&1 || true
+      if is_macos && [[ "$ts_user" != "root" ]]; then
+        sudo -u "$ts_user" tailscale up </dev/tty >/dev/tty 2>&1 || true
+      else
+        tailscale up </dev/tty >/dev/tty 2>&1 || true
+      fi
     else
-      echo "Tailscale installed. Finish login with: sudo tailscale up"
+      echo "Tailscale installed. Finish login with: tailscale up"
       echo "  (or pass --tailscale-auth-key / set URC_TAILSCALE_AUTH_KEY)"
     fi
   else
     echo "Tailscale already connected."
   fi
 
-  local hn="${HOST_ID:-$(hostname -s)}"
-  tailscale set --hostname="$hn" 2>/dev/null || true
+  if is_macos && [[ "$ts_user" != "root" ]]; then
+    sudo -u "$ts_user" tailscale set --hostname="$hn" 2>/dev/null || true
+  else
+    tailscale set --hostname="$hn" 2>/dev/null || true
+  fi
 }
 
 ensure_token() {
-  install -d -m755 /etc/urc
+  install -d -m755 "$URC_ETC"
   if [[ -n "$TOKEN" ]]; then
     return
   fi
-  if [[ -f /etc/urc/token ]]; then
-    TOKEN="$(cat /etc/urc/token)"
+  if [[ -f "$URC_ETC/token" ]]; then
+    TOKEN="$(cat "$URC_ETC/token")"
     return
   fi
   TOKEN="$(openssl rand -hex 24)"
-  echo "$TOKEN" > /etc/urc/token
-  chmod 600 /etc/urc/token
+  echo "$TOKEN" > "$URC_ETC/token"
+  chmod 600 "$URC_ETC/token"
 }
 
 save_credentials() {
   local coord_pub="${1:-}"
-  install -d -m755 /etc/urc
+  install -d -m755 "$URC_ETC"
   cat > "$CREDENTIALS_FILE" <<EOF
 # Ubuntu Remote Control — save these somewhere safe
 URC_TOKEN=$TOKEN
@@ -165,19 +199,26 @@ EOF
 write_client_config() {
   local coord_client="$1"
   local target_host="${2:-}"
-  install -d -m755 /etc/urc
-  cat > /etc/urc/client.env <<EOF
+  install -d -m755 "$URC_ETC"
+  cat > "$CLIENT_ENV_FILE" <<EOF
 URC_COORDINATOR=$coord_client
 URC_TOKEN=$TOKEN
 URC_DEFAULT_HOST=$target_host
 EOF
-  chmod 644 /etc/urc/client.env
+  chmod 644 "$CLIENT_ENV_FILE"
 }
 
 run_interactive() {
   echo ""
   echo "=== Ubuntu Remote Control ==="
   echo ""
+  if is_macos; then
+    echo "macOS detected — installing the client (connect FROM this Mac)."
+    echo "Use role 1 on each Ubuntu PC you want to control."
+    echo ""
+    ROLE=client
+    return
+  fi
   echo "What is this machine?"
   echo "  1) PC I remote INTO (install agent + Tailscale)"
   echo "  2) Laptop I connect FROM (install client + Tailscale)"
@@ -240,12 +281,41 @@ configure_role_interactive() {
 
 install_base_packages() {
   echo "==> Installing system packages"
+  if is_macos; then
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "ERROR: curl is required. Install Xcode Command Line Tools: xcode-select --install" >&2
+      exit 1
+    fi
+    return
+  fi
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq curl ca-certificates openssl
 }
 
 install_build_deps() {
+  if is_macos; then
+    local build_user="${SUDO_USER:-$USER}"
+    local cargo_ok=false
+    if [[ "$build_user" != "root" ]] && sudo -u "$build_user" -H cargo --version >/dev/null 2>&1; then
+      cargo_ok=true
+    elif cargo --version >/dev/null 2>&1; then
+      cargo_ok=true
+    fi
+    if $cargo_ok; then
+      return
+    fi
+    echo "==> Rust not found — install via rustup (one-time)"
+    if [[ "$build_user" != "root" ]]; then
+      sudo -u "$build_user" -H bash -c 'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q' || true
+      sudo -u "$build_user" -H bash -c 'source "$HOME/.cargo/env" && rustup default stable' 2>/dev/null || true
+    fi
+    if ! sudo -u "$build_user" -H cargo --version >/dev/null 2>&1; then
+      echo "ERROR: Install Rust, then re-run: curl https://sh.rustup.rs | sh" >&2
+      exit 1
+    fi
+    return
+  fi
   # rustup shim without a default toolchain breaks `cargo build`
   if command -v rustup >/dev/null 2>&1; then
     echo "==> Configuring Rust toolchain"
@@ -267,7 +337,31 @@ install_build_deps() {
   fi
 }
 
+install_client_binaries() {
+  if [[ -n "${URC_SKIP_BUILD:-}" ]] && [[ -n "${URC_BIN_DIR:-}" ]]; then
+    echo "==> Installing prebuilt client"
+    install -Dm755 "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
+    install -Dm755 "$URC_BIN_DIR/urc" "$INSTALL_PREFIX/bin/urc"
+    return
+  fi
+  install_build_deps
+  echo "==> Building URC client (first install — may take a few minutes)"
+  local build_user="${SUDO_USER:-$USER}"
+  if is_macos && [[ "$build_user" != "root" ]]; then
+    sudo -u "$build_user" -H bash -c "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release -p urc-client"
+  else
+    cd "$REPO_ROOT"
+    cargo build --release -p urc-client
+  fi
+  install -Dm755 "$REPO_ROOT/target/release/urc-client" "$INSTALL_PREFIX/bin/urc-client"
+  install -Dm755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
+}
+
 build_and_install_binaries() {
+  if is_macos; then
+    install_client_binaries
+    return
+  fi
   if [[ -n "${URC_SKIP_BUILD:-}" ]] && [[ -n "${URC_BIN_DIR:-}" ]]; then
     echo "==> Installing prebuilt binaries"
     install -Dm755 "$URC_BIN_DIR/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
@@ -303,12 +397,25 @@ install_desktop_deps() {
   esac
   local u="${SUDO_USER:-ubuntu}"
   if [[ -f /etc/lightdm/lightdm.conf ]] && ! grep -q '^autologin-user=' /etc/lightdm/lightdm.conf; then
-    sed -i "/^\[Seat:\*\]/a autologin-user=$u\nautologin-user-timeout=0" /etc/lightdm/lightdm.conf || true
+    sed_inplace "/^\[Seat:\*\]/a autologin-user=$u\nautologin-user-timeout=0" /etc/lightdm/lightdm.conf || true
   fi
   systemctl enable lightdm 2>/dev/null || true
 }
 
 install_client_deps() {
+  if is_macos; then
+    echo "==> macOS client dependencies"
+    if command -v brew >/dev/null 2>&1; then
+      if ! command -v vncviewer >/dev/null 2>&1; then
+        echo "==> Installing TigerVNC Viewer (Homebrew)"
+        brew install --cask tigervnc-viewer 2>/dev/null || brew install tigervnc-viewer 2>/dev/null || true
+      fi
+    fi
+    if ! command -v vncviewer >/dev/null 2>&1; then
+      echo "Tip: install a VNC viewer: brew install --cask tigervnc-viewer" >&2
+    fi
+    return
+  fi
   apt-get install -y -qq tigervnc-viewer || true
 }
 
@@ -339,15 +446,15 @@ setup_agent_config() {
   install -d -m755 /etc/urc
   "$INSTALL_PREFIX/bin/urc-agent" --init-config > /etc/urc/agent.toml
   local hid="${HOST_ID:-$(hostname -s)}"
-  sed -i "s/^host_id = .*/host_id = \"$hid\"/" /etc/urc/agent.toml
-  sed -i "s/^token = .*/token = \"$TOKEN\"/" /etc/urc/agent.toml
+  sed_inplace "s/^host_id = .*/host_id = \"$hid\"/" /etc/urc/agent.toml
+  sed_inplace "s/^token = .*/token = \"$TOKEN\"/" /etc/urc/agent.toml
   if [[ -n "${COORDINATOR_URL:-}" ]]; then
-    sed -i "s|^coordinator_url = .*|coordinator_url = \"$COORDINATOR_URL\"|" /etc/urc/agent.toml
+    sed_inplace "s|^coordinator_url = .*|coordinator_url = \"$COORDINATOR_URL\"|" /etc/urc/agent.toml
   else
-    sed -i 's|^coordinator_url = .*|coordinator_url = ""|' /etc/urc/agent.toml
+    sed_inplace 's|^coordinator_url = .*|coordinator_url = ""|' /etc/urc/agent.toml
   fi
   if want_tailscale; then
-    sed -i '/^\[tailscale\]/,/^\[/ s/^enabled = .*/enabled = true/' /etc/urc/agent.toml
+    sed_inplace '/^\[tailscale\]/,/^\[/ s/^enabled = .*/enabled = true/' /etc/urc/agent.toml
   fi
   install -d -m700 /etc/urc/tls
   setup_vnc_password
@@ -446,6 +553,11 @@ print_finish_client() {
   echo "  Client ready"
   echo "============================================"
   echo ""
+  if is_macos; then
+    echo "  Config: $CLIENT_ENV_FILE"
+    echo "  (TigerVNC: brew install --cask tigervnc-viewer if needed)"
+    echo ""
+  fi
   echo "  List your PCs:"
   echo "    urc hosts"
   echo ""
@@ -467,8 +579,9 @@ if [[ -z "$ROLE" ]]; then
   exit 1
 fi
 
-if [[ "$ROLE" != "client" ]] && [[ "$(uname -s)" != "Linux" ]]; then
-  echo "Agent and coordinator require Linux." >&2
+if [[ "$ROLE" != "client" ]] && ! is_linux; then
+  echo "On macOS only the client (laptop) role is supported." >&2
+  echo "Install role agent on each Ubuntu PC you want to control." >&2
   exit 1
 fi
 

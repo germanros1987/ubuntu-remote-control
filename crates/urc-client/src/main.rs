@@ -143,30 +143,68 @@ async fn connect_host(
     );
 }
 
+fn find_vncviewer() -> String {
+    if let Ok(path) = std::process::Command::new("which").arg("vncviewer").output() {
+        if path.status.success() {
+            let s = String::from_utf8_lossy(&path.stdout).trim().to_string();
+            if !s.is_empty() {
+                return s;
+            }
+        }
+    }
+    for candidate in [
+        "/Applications/TigerVNC Viewer.app/Contents/MacOS/vncviewer",
+        "/opt/homebrew/bin/vncviewer",
+        "/usr/local/bin/vncviewer",
+    ] {
+        if std::path::Path::new(candidate).is_file() {
+            return candidate.to_string();
+        }
+    }
+    "vncviewer".to_string()
+}
+
+fn credentials_paths() -> &'static [&'static str] {
+    &[
+        "/usr/local/etc/urc/credentials",
+        "/etc/urc/credentials",
+    ]
+}
+
 fn launch_viewer(
     viewer: &str,
     local_port: u16,
     mac_cmd_to_super: bool,
     password_file: Option<&std::path::Path>,
 ) -> Result<()> {
-    let creds = "/etc/urc/credentials";
-    let mut cmd = Command::new(viewer);
+    let viewer_bin = if viewer == "vncviewer" {
+        find_vncviewer()
+    } else {
+        viewer.to_string()
+    };
+    let mut cmd = Command::new(&viewer_bin);
     cmd.arg(format!("127.0.0.1:{local_port}"));
     if mac_cmd_to_super {
         cmd.env("URC_MAC_CMD_TO_SUPER", "1");
     }
     if let Some(pw) = password_file {
         cmd.arg("-PasswordFile").arg(pw);
-    } else if std::path::Path::new(creds).is_readable() {
-        if let Ok(text) = std::fs::read_to_string(creds) {
-            for line in text.lines() {
-                if let Some(rest) = line.strip_prefix("URC_VNC_PASSWORD=") {
-                    let tmp = std::env::temp_dir().join("urc-vnc-pass");
-                    std::fs::write(&tmp, format!("{rest}\n"))?;
-                    cmd.arg("-PasswordFile").arg(&tmp);
-                    break;
+    } else {
+        for creds in credentials_paths() {
+            if !std::path::Path::new(creds).is_readable() {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(creds) {
+                for line in text.lines() {
+                    if let Some(rest) = line.strip_prefix("URC_VNC_PASSWORD=") {
+                        let tmp = std::env::temp_dir().join("urc-vnc-pass");
+                        std::fs::write(&tmp, format!("{rest}\n"))?;
+                        cmd.arg("-PasswordFile").arg(&tmp);
+                        break;
+                    }
                 }
             }
+            break;
         }
     }
 
