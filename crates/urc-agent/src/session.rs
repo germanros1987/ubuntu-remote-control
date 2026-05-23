@@ -1,6 +1,7 @@
 //! Detect active graphical sessions via loginctl and environment.
 
 use anyhow::{bail, Context, Result};
+use std::os::unix::fs::MetadataExt;
 use std::process::Command;
 use urc_common::BackendPreference;
 
@@ -125,7 +126,10 @@ impl SessionDetector {
             };
 
             let display = if session_type == "x11" {
-                display.or_else(|| user_display_env(&username))
+                display
+                    .or_else(|| display_from_who(&username))
+                    .or_else(|| display_from_x11_unix(uid))
+                    .or_else(|| user_display_env(&username))
             } else {
                 display
             };
@@ -217,6 +221,44 @@ impl SessionDetector {
     }
 }
 
+/// Active TTY display from `who` (e.g. `:1`). loginctl often leaves Display= empty on Xorg.
+fn display_from_who(username: &str) -> Option<String> {
+    let output = Command::new("who").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut parts = line.split_whitespace();
+        if parts.next()? != username {
+            continue;
+        }
+        let disp = parts.next()?;
+        if disp.starts_with(':') && disp.chars().all(|c| c == ':' || c.is_ascii_digit()) {
+            return Some(disp.to_string());
+        }
+    }
+    None
+}
+
+/// Match /tmp/.X11-unix/X{n} sockets owned by the session uid.
+fn display_from_x11_unix(uid: u32) -> Option<String> {
+    let dir = std::path::Path::new("/tmp/.X11-unix");
+    let mut found = Vec::new();
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(num) = name.strip_prefix('X').and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
+        let meta = entry.metadata().ok()?;
+        if meta.uid() == uid {
+            found.push(num);
+        }
+    }
+    found.sort_unstable();
+    found.last().map(|n| format!(":{n}"))
+}
+
 fn user_display_env(username: &str) -> Option<String> {
     let output = Command::new("runuser")
         .args([
@@ -225,7 +267,7 @@ fn user_display_env(username: &str) -> Option<String> {
             "--",
             "bash",
             "-lc",
-            "echo \"${DISPLAY:-:0}\"",
+            "printf '%s' \"${DISPLAY}\"",
         ])
         .output()
         .ok()?;
@@ -233,7 +275,7 @@ fn user_display_env(username: &str) -> Option<String> {
         return None;
     }
     let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() {
+    if s.is_empty() || !s.starts_with(':') {
         None
     } else {
         Some(s)

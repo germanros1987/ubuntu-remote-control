@@ -37,6 +37,13 @@ echo "==> Ubuntu Remote Control"
 GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
 BR="${URC_BRANCH:-main}"
 
+# Release tarballs often lag behind main; default to source builds so curl install matches scripts.
+# Set URC_ALWAYS_SOURCE=0 to prefer GitHub Release prebuilts when available.
+URC_ALWAYS_SOURCE="${URC_ALWAYS_SOURCE:-1}"
+if [[ "$URC_ALWAYS_SOURCE" == "1" ]]; then
+  export URC_FORCE_BUILD=1
+fi
+
 # raw.githubusercontent.com caches branch tips — use commit SHA for fresh packaging scripts
 git_sha() {
   curl -fsSL -H "Accept: application/vnd.github+json" \
@@ -64,6 +71,7 @@ if [[ -n "${URC_BINARIES_URL:-}" ]]; then
     chmod +x "$WORKDIR/bin/$bin"
   done
   for f in packaging/install.sh packaging/install-mac-client.sh packaging/scripts/urc \
+    packaging/scripts/urc-fix-agent-perms.sh packaging/scripts/urc-recover-x11.sh \
     packaging/scripts/wait-for-session.sh packaging/scripts/urc-health-check.sh \
     packaging/scripts/urc-coordinator-health-check.sh \
     packaging/systemd/urc-agent.service packaging/systemd/urc-coordinator.service \
@@ -82,6 +90,7 @@ fi
 
 mkdir -p "$WORKDIR/packaging/systemd" "$WORKDIR/packaging/scripts"
 for f in packaging/install.sh packaging/install-mac-client.sh packaging/scripts/urc \
+  packaging/scripts/urc-fix-agent-perms.sh packaging/scripts/urc-recover-x11.sh \
   packaging/scripts/wait-for-session.sh \
   packaging/scripts/urc-health-check.sh \
   packaging/scripts/urc-coordinator-health-check.sh \
@@ -120,13 +129,6 @@ if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
       url="https://github.com/${GH}/releases/download/${tag}/${PREBUILT_ASSET}.tar.gz"
       if curl -fsSL "$url" 2>/dev/null | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
         echo "==> Using prebuilt binaries (${PREBUILT_ASSET} from ${tag})"
-        # Linux agent: also fetch source so packaging/install.sh can rebuild urc-agent.
-        if [[ "$(uname -s)" == "Linux" ]] && [[ "${1:-}" == "--role" && "${2:-}" == "agent" ]]; then
-          SRC_URL="https://github.com/${GH}/archive/${GIT_SHA:-${BR}}.tar.gz"
-          echo "==> Downloading source (${GIT_SHA:0:7})"
-          curl -fsSL "$SRC_URL" | tar xz -C "$WORKDIR" --strip-components=1
-          curl -fsSL "$url" | tar xz -C "$WORKDIR/bin" 2>/dev/null || true
-        fi
         export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
         if [[ "$(uname -s)" == "Darwin" ]]; then
           exec bash "$WORKDIR/packaging/install-mac-client.sh" "$@"
@@ -154,8 +156,32 @@ if [[ ! -f "$WORKDIR/packaging/install.sh" ]]; then
   exit 1
 fi
 
+# Cargo builds run as SUDO_USER; workdir must be writable.
+if [[ -n "${SUDO_USER:-}" ]] && [[ -d "$WORKDIR" ]]; then
+  chown -R "$SUDO_USER:$SUDO_USER" "$WORKDIR"
+fi
+
 export REPO_ROOT="$WORKDIR"
+
+build_mac_client_binaries() {
+  local root="$1"
+  local build_user="${SUDO_USER:-$USER}"
+  if [[ -f "$root/target/release/urc-client" ]] && [[ -f "$root/target/release/urc" ]]; then
+    return 0
+  fi
+  echo "==> Building Mac client (first install — may take a few minutes)"
+  if ! sudo -u "$build_user" bash -lc 'command -v cargo >/dev/null 2>&1'; then
+    echo "==> Installing Rust (rustup)"
+    sudo -u "$build_user" bash -lc 'curl -fsSL https://sh.rustup.rs | sh -s -- -y -q --default-toolchain stable'
+  fi
+  sudo -u "$build_user" bash -lc "cd '$root' && source \"\$HOME/.cargo/env\" && cargo build --release -p urc-client"
+  cp -f "$root/packaging/scripts/urc" "$root/target/release/urc"
+  chmod +x "$root/target/release/urc-client" "$root/target/release/urc"
+}
+
 if [[ "$(uname -s)" == "Darwin" ]] && { [[ "${1:-}" == "--role" ]] && [[ "${2:-}" == "client" ]] || [[ -z "${1:-}" ]]; }; then
+  build_mac_client_binaries "$WORKDIR"
+  export URC_BIN_DIR="$WORKDIR/target/release"
   exec bash "$WORKDIR/packaging/install-mac-client.sh" "$@"
 fi
 exec bash "$WORKDIR/packaging/install.sh" "$@"

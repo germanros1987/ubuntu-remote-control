@@ -19,6 +19,7 @@ use urc_common::AgentConfig;
 const SESSION_POLL_SECS: u64 = 30;
 const HEALTH_TICK_SECS: u64 = 30;
 const RECOVERY_PAUSE_SECS: u64 = 5;
+const RECOVERY_PAUSE_MAX_SECS: u64 = 300;
 
 struct RunningStack {
     backend: BackendManager,
@@ -56,7 +57,13 @@ pub async fn run_supervisor(config: AgentConfig) -> Result<()> {
             break;
         }
 
-        tokio::time::sleep(Duration::from_secs(RECOVERY_PAUSE_SECS)).await;
+        // Back off after failures so we do not exhaust X client slots (MaxClients ~256).
+        let pause = RECOVERY_PAUSE_SECS.saturating_mul(1u64 << cycle.min(6).saturating_sub(1));
+        let pause = pause.min(RECOVERY_PAUSE_MAX_SECS);
+        if pause > RECOVERY_PAUSE_SECS {
+            warn!(pause_secs = pause, "backing off before next supervisor cycle");
+        }
+        tokio::time::sleep(Duration::from_secs(pause)).await;
     }
 
     Ok(())

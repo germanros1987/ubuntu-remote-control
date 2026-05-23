@@ -211,16 +211,35 @@ fn read_vnc_password(password_file: Option<&std::path::Path>) -> Option<String> 
     None
 }
 
+fn vnc_url_encode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 /// macOS built-in Screen Sharing (`open vnc://…`) — no TigerVNC install required.
 async fn launch_viewer_macos(local_port: u16, password: Option<&str>) -> Result<()> {
-    let url = format!("vnc://127.0.0.1:{local_port}");
-    if let Some(pw) = password {
+    // localhost works more reliably than 127.0.0.1 with Apple's Screen Sharing.
+    let url = if let Some(pw) = password.filter(|p| !p.is_empty()) {
         let _ = Command::new("pbcopy").arg(pw).status();
         println!("VNC password copied to clipboard — paste if Screen Sharing prompts.");
-    }
+        format!(
+            "vnc://urc:{}@localhost:{local_port}",
+            vnc_url_encode(pw)
+        )
+    } else {
+        format!("vnc://localhost:{local_port}")
+    };
     info!(%url, "opening built-in Screen Sharing");
     // Tunnel is verified before we get here; brief pause so Screen Sharing does not race the listener.
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
     let status = Command::new("open")
         .arg("-a")
         .arg("Screen Sharing")

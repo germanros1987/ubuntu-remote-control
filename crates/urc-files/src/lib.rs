@@ -36,9 +36,9 @@ pub async fn spawn_files_server(
     let state = Arc::new(FilesState { root });
 
     let app = Router::new()
-        .route("/api/list/*path", get(list_dir))
-        .route("/api/download/*path", get(download_file))
-        .route("/api/upload/*path", post(upload_file))
+        .route("/api/list/{*path}", get(list_dir))
+        .route("/api/download/{*path}", get(download_file))
+        .route("/api/upload/{*path}", post(upload_file))
         .route("/api/health", get(|| async { "ok" }))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

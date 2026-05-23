@@ -2,98 +2,93 @@
 
 Remote your Ubuntu PCs over **Tailscale** — real GPU desktop, encrypted, no VPS required.
 
-## Turn-key setup (two installs)
+## 1-click install (recommended)
 
 Use the **same Tailscale account** on every machine.
 
-### 1. Each PC you want to control
-
-```bash
-curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
-# When prompted, choose: 1) PC I remote INTO
-# Sign in to Tailscale when prompted
-```
-
-Or pass the role directly (no menu):
+### PC you control (Ubuntu desktop, e.g. sa-grs)
 
 ```bash
 curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
-  sudo bash -s -- --role agent
+  sudo bash -s -- --role agent -y
 ```
 
-### 2. Your laptop (Linux or macOS)
+First run builds from source (~3–5 min). Sign in to Tailscale when prompted. Stay logged into the graphical desktop on that PC.
 
-**Linux:**
-```bash
-curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
-# Choose: 2) Laptop I connect FROM
-```
-
-**macOS** (client only — same Tailscale account):
-```bash
-curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
-# Detects macOS — client + Tailscale; remote desktop via built-in Screen Sharing
-```
+### Mac you connect from
 
 ```bash
-# Non-interactive (Linux or Mac):
 curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
-  sudo bash -s -- --role client
+  sudo bash -s -- --role client -y
 ```
 
-### 3. Connect
+Installs `urc` + Tailscale. Uses built-in **Screen Sharing** (no extra VNC app).
+
+### Connect
 
 ```bash
-urc hosts              # all machines on your tailnet
-urc connect my-pc      # open remote desktop
+urc hosts
+urc connect sa-grs
 ```
 
-That is it — no coordinator URL, no tokens to copy, no host IDs to configure by hand. Machine names come from Tailscale (defaults to your PC hostname).
+Keep the terminal open while you use the remote desktop. Press **Ctrl+C** when done.
+
+---
+
+## If something fails
+
+**On the PC** (re-run the same curl command — it is safe):
+
+```bash
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
+  sudo bash -s -- --role agent -y
+```
+
+Check:
+
+```bash
+systemctl status urc-agent
+ss -tlnp | grep 15900
+```
+
+**On the Mac** (re-run client install, then connect):
+
+```bash
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
+  sudo bash -s -- --role client -y
+```
+
+---
+
+## Non-interactive / Tailscale auth key
+
+```bash
+URC_TAILSCALE_AUTH_KEY=tskey-auth-... \
+  curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
+  sudo bash -s -- --role agent -y
+```
 
 ## What happens under the hood
 
 | Step | What URC does |
 |------|----------------|
-| Install on PC | Agent + TigerVNC + Tailscale; agent listens on TLS port 15900 on the tailnet |
-| Install on laptop (Linux or Mac) | Client + Tailscale |
-| `urc hosts` | Reads your tailnet from `tailscale status` |
-| `urc connect NAME` | Resolves NAME → Tailscale IP → encrypted VNC |
+| Install on PC | Agent + TigerVNC + Tailscale; TLS VNC on tailnet port **15900** |
+| Install on Mac | Client + Tailscale; tunnels to PC, opens Screen Sharing |
+| `urc hosts` | Lists machines from `tailscale status` |
+| `urc connect NAME` | TLS tunnel → plain VNC locally → Screen Sharing |
 
-Optional **VPS relay** is still available for advanced setups (`--coordinator-url` during install). Most users only need Tailscale.
+Optional **VPS relay**: pass `--coordinator-url` during install (advanced).
 
-## Non-interactive / auth keys
-
-```bash
-# PC (unattended Tailscale login)
-URC_TAILSCALE_AUTH_KEY=tskey-auth-... \
-  curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
-  sudo bash -s -- --role agent -y
-
-# Laptop
-curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
-  sudo bash -s -- --role client -y
-```
-
-## Self-hosted install mirror (optional)
-
-By default the installer pulls source from this repo on GitHub. To host your own copy (e.g. prebuilt binaries):
+## Local development
 
 ```bash
-./packaging/mk-dist.sh
-# Upload dist/ to HTTPS, then see packaging/mk-dist.sh for URC_BINARIES_URL examples
-```
-
-Repository: [github.com/germanros1987/ubuntu-remote-control](https://github.com/germanros1987/ubuntu-remote-control)
-
-Local test from checkout:
-
-```bash
-sudo ./install
+sudo ./install --role agent -y    # on Ubuntu PC
+sudo ./install --role client -y   # on Mac (from repo checkout)
 ```
 
 ## Reliability
 
-Auto-restart on crash, boot, login, and every 10 minutes. See [docs/service-health.md](docs/service-health.md).
+Auto-restart on crash, boot, login, and health timers. See [docs/service-health.md](docs/service-health.md).
 
 ## License
 

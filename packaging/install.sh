@@ -323,9 +323,14 @@ install_base_packages() {
 }
 
 rustc_version_ok() {
-  local major minor
-  major=$(rustc --version 2>/dev/null | sed -n 's/rustc \([0-9]*\)\..*/\1/p')
-  minor=$(rustc --version 2>/dev/null | sed -n 's/rustc [0-9]*\.\([0-9]*\).*/\1/p')
+  local major minor ver
+  if [[ -n "${SUDO_USER:-}" ]] && [[ "$(id -u)" -eq 0 ]]; then
+    ver=$(linux_run_cargo 'source "$HOME/.cargo/env" 2>/dev/null; rustc --version' 2>/dev/null || true)
+  else
+    ver=$(rustc --version 2>/dev/null || true)
+  fi
+  major=$(printf '%s\n' "$ver" | sed -n 's/rustc \([0-9]*\)\..*/\1/p')
+  minor=$(printf '%s\n' "$ver" | sed -n 's/rustc [0-9]*\.\([0-9]*\).*/\1/p')
   [[ -n "$major" && -n "$minor" ]] || return 1
   [[ "$major" -gt 1 ]] && return 0
   [[ "$major" -eq 1 && "$minor" -ge 78 ]]
@@ -489,7 +494,12 @@ install_client_deps() {
 }
 
 setup_vnc_password() {
+  local desktop_user="${SUDO_USER:-}"
   if [[ -f /etc/urc/vncpasswd ]]; then
+    if [[ -n "$desktop_user" ]]; then
+      chown "$desktop_user:$desktop_user" /etc/urc/vncpasswd 2>/dev/null || true
+      chmod 600 /etc/urc/vncpasswd
+    fi
     return
   fi
   local vnc_pass vncpwd
@@ -541,6 +551,7 @@ setup_coordinator_config() {
 
 install_libexec() {
   install -d -m755 /usr/libexec/urc
+  install_file 755 "$REPO_ROOT/packaging/scripts/urc-fix-agent-perms.sh" /usr/libexec/urc/urc-fix-agent-perms.sh
   install_file 755 "$REPO_ROOT/packaging/scripts/wait-for-session.sh" /usr/libexec/urc/wait-for-session.sh
   install_file 755 "$REPO_ROOT/packaging/scripts/urc-health-check.sh" /usr/libexec/urc/urc-health-check.sh
   install_file 755 "$REPO_ROOT/packaging/scripts/urc-coordinator-health-check.sh" /usr/libexec/urc/urc-coordinator-health-check.sh
@@ -567,6 +578,11 @@ enable_agent() {
 
 bootstrap_agent_vnc() {
   echo "==> Starting remote desktop (VNC on 5900, TLS on 15900)…"
+  if [[ -x /usr/libexec/urc/urc-fix-agent-perms.sh ]]; then
+    /usr/libexec/urc/urc-fix-agent-perms.sh || true
+  elif [[ -x "$REPO_ROOT/packaging/scripts/urc-fix-agent-perms.sh" ]]; then
+    "$REPO_ROOT/packaging/scripts/urc-fix-agent-perms.sh" || true
+  fi
   local attempt
   for attempt in 1 2 3 4 5 6; do
     systemctl restart urc-agent.service
@@ -585,6 +601,10 @@ bootstrap_agent_vnc() {
   done
   echo "ERROR: Remote desktop did not start on port 15900." >&2
   echo "  Ensure you are logged into the graphical desktop on this machine." >&2
+  if [[ -x "$REPO_ROOT/packaging/scripts/urc-recover-x11.sh" ]]; then
+    echo "  If logs mention 'Maximum number of clients reached', run:" >&2
+    echo "    sudo $REPO_ROOT/packaging/scripts/urc-recover-x11.sh" >&2
+  fi
   journalctl -u urc-agent -n 25 --no-pager >&2 || true
   exit 1
 }
@@ -718,12 +738,6 @@ case "$ROLE" in
       install_agent_deps
     fi
     build_and_install_binaries
-    if [[ -f "$REPO_ROOT/Cargo.toml" ]]; then
-      echo "==> Building urc-agent from source (latest fixes)"
-      install_build_deps
-      linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release -p urc-agent"
-      install_file 755 "$REPO_ROOT/target/release/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
-    fi
     setup_agent_config
     if want_tailscale; then
       setup_tailscale
