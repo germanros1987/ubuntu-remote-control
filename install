@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Ubuntu Remote Control — install via curl (no git)
+#
+#   curl -fsSL https://raw.githubusercontent.com/YOU/urc/main/install | sudo bash
+#
+# Optional:
+#   URC_GITHUB=YOU/ubuntu-remote-control
+#   URC_SOURCE_TARBALL=https://example.com/urc.tar.gz
+#   URC_BINARIES_URL=https://example.com/releases/latest/linux-amd64
+#
+set -euo pipefail
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  exec sudo -E bash "$0" "$@"
+fi
+
+# Local run from checkout: ./install lives next to Cargo.toml
+if [[ -f "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ "${BASH_SOURCE[0]}" != "-" ]]; then
+  _src="${BASH_SOURCE[0]}"
+  [[ -L "$_src" ]] && _src="$(readlink -f "$_src")"
+  _root="$(cd "$(dirname "$_src")" && pwd)"
+  if [[ -f "$_root/Cargo.toml" ]] && [[ -f "$_root/packaging/install.sh" ]]; then
+    exec bash "$_root/packaging/install.sh" "$@"
+  fi
+fi
+
+# --- curl | bash: download with curl, never git ---
+WORKDIR="${URC_WORKDIR:-$(mktemp -d /tmp/urc-install.XXXXXX)}"
+cleanup() { [[ -n "${URC_KEEP_WORKDIR:-}" ]] || rm -rf "$WORKDIR"; }
+trap cleanup EXIT
+
+echo "==> Ubuntu Remote Control"
+
+if [[ -n "${URC_BINARIES_URL:-}" ]]; then
+  echo "==> Installing prebuilt binaries"
+  mkdir -p "$WORKDIR/bin" "$WORKDIR/packaging/systemd" "$WORKDIR/packaging/scripts"
+  for bin in urc-agent urc-coordinator urc-client urc; do
+    curl -fsSL "$URC_BINARIES_URL/$bin" -o "$WORKDIR/bin/$bin"
+    chmod +x "$WORKDIR/bin/$bin"
+  done
+  BASE="${URC_RAW_URL:-${URC_INSTALL_URL:-}}"
+  if [[ -n "$BASE" ]]; then
+    for f in packaging/install.sh packaging/scripts/urc \
+      packaging/scripts/wait-for-session.sh \
+      packaging/scripts/urc-health-check.sh \
+      packaging/scripts/urc-coordinator-health-check.sh \
+      packaging/systemd/urc-agent.service \
+      packaging/systemd/urc-coordinator.service \
+      packaging/systemd/urc-agent-health.service \
+      packaging/systemd/urc-agent-health.timer \
+      packaging/systemd/urc-coordinator-health.service \
+      packaging/systemd/urc-coordinator-health.timer \
+      packaging/systemd/urc-agent-login.path \
+      packaging/systemd/urc-agent-login.service; do
+      curl -fsSL "$BASE/$f" -o "$WORKDIR/$f"
+    done
+    chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/scripts/"*
+  else
+    echo "URC_BINARIES_URL requires URC_RAW_URL (packaging file base)" >&2
+    exit 1
+  fi
+  export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
+  exec bash "$WORKDIR/packaging/install.sh" "$@"
+fi
+
+if [[ -n "${URC_SOURCE_TARBALL:-}" ]]; then
+  echo "==> Downloading tarball"
+  curl -fsSL "$URC_SOURCE_TARBALL" | tar xz -C "$WORKDIR" --strip-components=1
+else
+  GH="${URC_GITHUB:-ubuntu-remote-control/ubuntu-remote-control}"
+  BR="${URC_BRANCH:-main}"
+  URL="https://github.com/${GH}/archive/refs/heads/${BR}.tar.gz"
+  echo "==> Downloading source (curl)"
+  curl -fsSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
+fi
+
+if [[ ! -f "$WORKDIR/packaging/install.sh" ]]; then
+  echo "Download failed or invalid layout in $WORKDIR" >&2
+  exit 1
+fi
+
+export REPO_ROOT="$WORKDIR"
+exec bash "$WORKDIR/packaging/install.sh" "$@"

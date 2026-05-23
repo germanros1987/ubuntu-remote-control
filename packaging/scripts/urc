@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# User-facing wrapper — connect to remote PCs without remembering flags.
+set -euo pipefail
+
+CLIENT_ENV="/etc/urc/client.env"
+[[ -f "$CLIENT_ENV" ]] || CLIENT_ENV="${HOME}/.config/urc/client.env"
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  connect|c)
+  [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
+  host="${1:-${URC_DEFAULT_HOST:-}}"
+  if [[ -z "$host" ]]; then
+    echo "Usage: urc connect HOST_ID" >&2
+    exit 1
+  fi
+  exec urc-client --coordinator "${URC_COORDINATOR:-ws://127.0.0.1:21150/ws/client}" \
+    --token "${URC_TOKEN:-changeme}" \
+    connect "$host"
+  ;;
+  status|health)
+  exec urc-agent "${cmd}" "$@"
+  ;;
+  hosts)
+  [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
+  base="${URC_COORDINATOR:-ws://127.0.0.1:21150/ws/client}"
+  base="${base%/ws/client}"
+  exec curl -sf "${base}/hosts"
+  ;;
+  ""|help|-h|--help)
+  cat <<'EOF'
+urc — Ubuntu Remote Control
+
+  urc connect HOST_ID   Open remote desktop
+  urc hosts             List online machines
+  urc status            Agent health (on remote PC)
+  urc health            Exit 0 if agent healthy
+
+Install:
+  sudo ./install              Interactive
+  sudo ./install --role agent
+EOF
+  ;;
+  *)
+  echo "Unknown command: $cmd (try: urc connect HOST)" >&2
+  exit 1
+  ;;
+esac

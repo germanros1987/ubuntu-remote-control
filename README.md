@@ -1,72 +1,95 @@
 # Ubuntu Remote Control (URC)
 
-Session-faithful remote desktop for Linux: attaches to your **real** X11 or Wayland session (GPU-accelerated), encrypts traffic by default, and connects through NAT via a self-hosted coordinator or optional Tailscale.
+Remote your Ubuntu machines through a relay — your **real** GPU desktop, encrypted, reachable behind NAT.
 
-## Components
+## Install (curl only — no git)
 
-| Binary | Role |
-|--------|------|
-| `urc-agent` | Runs on Linux hosts — detects session, starts VNC backend, TLS tunnel, coordinator registration |
-| `urc-coordinator` | Rendezvous + relay (run on a VPS) |
-| `urc-client` | Connect from Linux/macOS — relays VNC and launches `vncviewer` |
-| `urc-files` | HTTP file API (embedded in agent) |
-
-## Quick start (development)
+**Interactive** (recommended — one question per machine):
 
 ```bash
-# Build
-cargo build --release
-
-# Terminal 1 — coordinator
-./target/release/urc-coordinator --shared-secret mytoken
-
-# Terminal 2 — agent (on machine with logged-in GUI)
-sudo install -d /etc/urc
-./target/release/urc-agent --init-config | sudo tee /etc/urc/agent.toml
-# Edit host_id, token, coordinator_url → ws://YOUR_VPS:21150/ws/agent
-
-# Terminal 3 — client
-./target/release/urc-client --token mytoken connect my-hostname
+curl -fsSL https://YOUR_SERVER/install | sudo bash
 ```
 
-## Install (production)
+Set `URC_GITHUB=youruser/ubuntu-remote-control` if the script should pull source from GitHub (default). Or host your own tarball/binaries (see below).
+
+**What you pick:**
+
+| Prompt | Machine |
+|--------|---------|
+| 1 | Ubuntu PC you remote **into** |
+| 2 | VPS **relay** (open TCP 21150) |
+| 3 | Laptop you **connect from** |
+
+Then connect:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ubuntu-remote-control/ubuntu-remote-control/main/packaging/install.sh | \
-  sudo bash -s -- --profile minimal --token YOUR_SECRET
+urc connect my-pc-name
 ```
 
-See [docs/headless-server.md](docs/headless-server.md) for GPU headless setups.
+Credentials land in `/etc/urc/credentials` on each box.
 
-## VNC backends
+### Three commands (non-interactive)
 
-- **X11:** `x0vncserver` (TigerVNC) on active display
-- **GNOME Wayland:** `gnome-remote-desktop` via `grdctl`
-- **wlroots:** `wayvnc` (Sway, Hyprland, …)
+```bash
+# VPS
+curl -fsSL https://YOUR_SERVER/install | sudo bash -s -- --role coordinator -y
+
+# Home PC
+curl -fsSL https://YOUR_SERVER/install | sudo bash -s -- --role agent \
+  --coordinator-url ws://VPS_IP:21150/ws/agent \
+  --token YOUR_TOKEN -y
+
+# Laptop
+curl -fsSL https://YOUR_SERVER/install | sudo bash -s -- --role client \
+  --coordinator-url ws://VPS_IP:21150/ws/client \
+  --token YOUR_TOKEN --host-id my-pc -y
+
+urc connect my-pc
+```
+
+### Host your own install URL
+
+From a machine with Rust:
+
+```bash
+./packaging/mk-dist.sh
+# Upload dist/install, dist/urc-source.tar.gz, and/or dist/linux-x86_64/ to HTTPS
+```
+
+**Fast install (prebuilt binaries, no rustc on target):**
+
+```bash
+curl -fsSL https://YOUR_SERVER/install | sudo \
+  URC_BINARIES_URL=https://YOUR_SERVER/linux-x86_64 \
+  URC_RAW_URL=https://YOUR_SERVER/raw/main \
+  bash
+```
+
+**Tarball only:**
+
+```bash
+curl -fsSL https://YOUR_SERVER/install | sudo \
+  URC_SOURCE_TARBALL=https://YOUR_SERVER/urc-source.tar.gz bash
+```
+
+### Local test (before you host it)
+
+```bash
+./packaging/mk-dist.sh
+curl -fsSL file://$PWD/dist/install | sudo \
+  URC_SOURCE_TARBALL=file://$PWD/dist/urc-source.tar.gz bash
+```
+
+Or from checkout without curl:
+
+```bash
+sudo ./install
+```
 
 ## Reliability
 
-URC is designed to stay reachable while you travel:
-
-- **systemd** `Restart=always` + no start-limit lockout
-- **In-process supervisor** restarts VNC/coordinator if they die
-- **10-minute health timer** runs `urc-health-check.sh` (restart if stuck)
-- **Login path unit** re-triggers agent when a graphical session appears after reboot
-
-See [docs/service-health.md](docs/service-health.md) for details and recovery tests.
-
-```bash
-urc-agent status    # JSON health
-urc-agent health    # exit 0 if OK (used by watchdog)
-systemctl status urc-agent-health.timer
-```
-
-## Security
-
-- VNC binds **localhost only**; `urc-agent` exposes **TLS** on port 15900 by default
-- Use `--insecure` only on trusted LANs
-- Coordinator requires matching `--token` / `shared_secret`
+Auto-restart on crash, boot, login, and every 10 minutes. See [docs/service-health.md](docs/service-health.md).
 
 ## License
 
-MIT (application code). VNC backends (TigerVNC, GNOME) are GPL — invoked as separate system packages.
+MIT (application). VNC backends are GPL system packages.
