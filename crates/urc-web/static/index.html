@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>URC — Remote Desktop</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <span class="brand">URC</span>
+    <span id="status" class="status">connecting…</span>
+    <span class="spacer"></span>
+    <button id="toggle-files" type="button">Files</button>
+    <button id="toggle-fullscreen" type="button">⛶</button>
+    <button id="disconnect" type="button">Disconnect</button>
+  </header>
+
+  <main id="layout">
+    <section id="screen-wrap">
+      <div id="screen"></div>
+    </section>
+
+    <aside id="files-panel" hidden>
+      <div class="panel-header">
+        <h2>Files</h2>
+        <span id="cwd" class="cwd">/</span>
+      </div>
+
+      <div id="upload-zone" class="upload">
+        <p>Drop files here to upload, or</p>
+        <label class="btn">
+          Choose files…
+          <input type="file" id="upload-input" multiple hidden>
+        </label>
+      </div>
+
+      <div id="files-list"></div>
+
+      <div id="files-error" class="error" hidden></div>
+    </aside>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

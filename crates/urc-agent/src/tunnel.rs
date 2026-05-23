@@ -13,13 +13,21 @@ use urc_common::AgentConfig;
 
 pub struct TlsTunnel {
     listen_port: u16,
-    vnc_port: u16,
+    local_port: u16,
+    label: &'static str,
     cert_path: PathBuf,
     key_path: PathBuf,
 }
 
 impl TlsTunnel {
-    pub fn new(config: &AgentConfig, vnc_port: u16) -> Result<Self> {
+    /// `listen_port` — external TLS port on 0.0.0.0. `local_port` — localhost TCP
+    /// destination once TLS terminates. `label` — short tag for logs ("vnc"/"web").
+    pub fn new(
+        _config: &AgentConfig,
+        listen_port: u16,
+        local_port: u16,
+        label: &'static str,
+    ) -> Result<Self> {
         let cert_dir = PathBuf::from("/etc/urc/tls");
         fs::create_dir_all(&cert_dir).ok();
 
@@ -32,8 +40,9 @@ impl TlsTunnel {
         }
 
         Ok(Self {
-            listen_port: config.listen_tls_port,
-            vnc_port,
+            listen_port,
+            local_port,
+            label,
             cert_path,
             key_path,
         })
@@ -46,18 +55,20 @@ impl TlsTunnel {
             .with_context(|| format!("bind TLS port {}", self.listen_port))?;
 
         info!(
+            label = self.label,
             port = self.listen_port,
-            vnc = self.vnc_port,
-            "TLS tunnel listening (encrypted VNC)"
+            local = self.local_port,
+            "TLS tunnel listening"
         );
 
         loop {
             let (client, addr) = listener.accept().await?;
             let acceptor = acceptor.clone();
-            let vnc_port = self.vnc_port;
+            let local_port = self.local_port;
+            let label = self.label;
             tokio::spawn(async move {
-                if let Err(e) = pipe_tls_client(client, acceptor, vnc_port).await {
-                    tracing::debug!(%addr, error = %e, "TLS client session ended");
+                if let Err(e) = pipe_tls_client(client, acceptor, local_port).await {
+                    tracing::debug!(%addr, label, error = %e, "TLS client session ended");
                 }
             });
         }
@@ -85,16 +96,16 @@ impl TlsTunnel {
 async fn pipe_tls_client(
     client: TcpStream,
     acceptor: TlsAcceptor,
-    vnc_port: u16,
+    local_port: u16,
 ) -> Result<()> {
-    let mut tls = acceptor.accept(client).await?;
-    let mut vnc = TcpStream::connect(("127.0.0.1", vnc_port)).await?;
+    let tls = acceptor.accept(client).await?;
+    let upstream = TcpStream::connect(("127.0.0.1", local_port)).await?;
 
     let (mut tls_read, mut tls_write) = tokio::io::split(tls);
-    let (mut vnc_read, mut vnc_write) = vnc.into_split();
+    let (mut up_read, mut up_write) = upstream.into_split();
 
-    let c1 = tokio::io::copy(&mut tls_read, &mut vnc_write);
-    let c2 = tokio::io::copy(&mut vnc_read, &mut tls_write);
+    let c1 = tokio::io::copy(&mut tls_read, &mut up_write);
+    let c2 = tokio::io::copy(&mut up_read, &mut tls_write);
     tokio::try_join!(c1, c2)?;
     Ok(())
 }

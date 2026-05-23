@@ -248,6 +248,23 @@ impl VncBackend for X11Backend {
             "1000000",
             "-BlacklistTimeout",
             "1",
+            // Pin the host's X display: a misbehaving client must not be able to
+            // resize the user's desktop via SetDesktopSize and leave it stuck.
+            "-AcceptSetDesktopSize",
+            "0",
+            // Clipboard sync (text). Modern TigerVNC ExtendedClipboard sits on top.
+            "-SendCutBuffer",
+            "1",
+            "-AcceptCutBuffer",
+            "1",
+            "-SendPrimary",
+            "1",
+            "-SetPrimary",
+            "1",
+            // Don't drop existing viewers when a second one connects — the unified UI
+            // can reopen during a session and should not kill the X session.
+            "-AlwaysShared",
+            "1",
         ]);
         let _ = password_file; // kept for API compat; auth is TLS + localhost bind
 

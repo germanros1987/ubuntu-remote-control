@@ -26,8 +26,9 @@ struct RunningStack {
     vnc_port: u16,
     coordinator: Arc<CoordinatorClient>,
     coord_handle: tokio::task::JoinHandle<()>,
-    files_handle: Option<tokio::task::JoinHandle<()>>,
-    tls_handle: Option<tokio::task::JoinHandle<()>>,
+    web_handle: Option<tokio::task::JoinHandle<()>>,
+    vnc_tls_handle: Option<tokio::task::JoinHandle<()>>,
+    web_tls_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 pub async fn run_supervisor(config: AgentConfig) -> Result<()> {
@@ -85,14 +86,12 @@ async fn run_one_cycle(
     backend_mgr.start().await?;
     let vnc_port = 5900u16;
 
-    let files_handle = if let Some(root) = &config.files_root {
+    // Unified web app: serves SPA, WebSocket-to-VNC bridge, files API.
+    let web_handle = if let Some(root) = &config.files_root {
+        let bind: std::net::SocketAddr =
+            ([127, 0, 0, 1], urc_common::DEFAULT_WEB_INTERNAL_PORT).into();
         Some(
-            urc_files::spawn_files_server(
-                PathBuf::from(root),
-                "127.0.0.1",
-                urc_common::DEFAULT_FILES_PORT,
-            )
-            .await?,
+            urc_web::spawn_web_server(PathBuf::from(root), bind, vnc_port).await?,
         )
     } else {
         None
@@ -106,19 +105,36 @@ async fn run_one_cycle(
             coord_client.run_loop().await;
         })
     } else {
-        info!("coordinator off — reachable via Tailscale on TLS port {}", config.listen_tls_port);
+        info!(
+            vnc_tls = config.listen_tls_port,
+            web_tls = config.listen_web_tls_port,
+            "coordinator off — reachable via Tailscale TLS"
+        );
         tokio::spawn(async { std::future::pending::<()>().await })
     };
 
-    let tls_handle = if !config.insecure {
-        let tunnel = TlsTunnel::new(config, vnc_port)?;
-        Some(tokio::spawn(async move {
-            if let Err(e) = tunnel.serve().await {
-                warn!(error = %e, "TLS tunnel stopped");
+    let (vnc_tls_handle, web_tls_handle) = if !config.insecure {
+        let vnc_tunnel =
+            TlsTunnel::new(config, config.listen_tls_port, vnc_port, "vnc")?;
+        let web_tunnel = TlsTunnel::new(
+            config,
+            config.listen_web_tls_port,
+            urc_common::DEFAULT_WEB_INTERNAL_PORT,
+            "web",
+        )?;
+        let v = tokio::spawn(async move {
+            if let Err(e) = vnc_tunnel.serve().await {
+                warn!(error = %e, "VNC TLS tunnel stopped");
             }
-        }))
+        });
+        let w = tokio::spawn(async move {
+            if let Err(e) = web_tunnel.serve().await {
+                warn!(error = %e, "web TLS tunnel stopped");
+            }
+        });
+        (Some(v), Some(w))
     } else {
-        None
+        (None, None)
     };
 
     let stack = RunningStack {
@@ -126,8 +142,9 @@ async fn run_one_cycle(
         vnc_port,
         coordinator,
         coord_handle,
-        files_handle,
-        tls_handle,
+        web_handle,
+        vnc_tls_handle,
+        web_tls_handle,
     };
 
     info!(vnc_port, "stack running — entering health loop");
@@ -181,7 +198,7 @@ async fn health_loop(
         let vnc_ok = stack.backend.health_check().await;
         let needs_coordinator = !config.coordinator_url.trim().is_empty();
         let coord_ok = !needs_coordinator || stack.coordinator.is_connected();
-        let files_ok = tcp_open(urc_common::DEFAULT_FILES_PORT).await;
+        let files_ok = tcp_open(urc_common::DEFAULT_WEB_INTERNAL_PORT).await;
 
         let healthy = vnc_ok && coord_ok;
         let now = SystemTime::now()
@@ -233,10 +250,13 @@ async fn health_loop(
 
 async fn teardown(mut stack: RunningStack) {
     stack.coord_handle.abort();
-    if let Some(h) = stack.files_handle.take() {
+    if let Some(h) = stack.web_handle.take() {
         h.abort();
     }
-    if let Some(h) = stack.tls_handle.take() {
+    if let Some(h) = stack.vnc_tls_handle.take() {
+        h.abort();
+    }
+    if let Some(h) = stack.web_tls_handle.take() {
         h.abort();
     }
     stack.backend.stop().await;

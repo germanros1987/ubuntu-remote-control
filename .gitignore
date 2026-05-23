@@ -9,3 +9,5 @@
 dist/
 node_modules/
 client/ui/dist/
+.omc/
+.vscode/

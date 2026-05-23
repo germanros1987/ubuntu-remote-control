@@ -6,6 +6,7 @@ members = [
     "crates/urc-coordinator",
     "crates/urc-client",
     "crates/urc-files",
+    "crates/urc-web",
 ]
 default-members = [
     "crates/urc-common",
@@ -13,6 +14,7 @@ default-members = [
     "crates/urc-coordinator",
     "crates/urc-client",
     "crates/urc-files",
+    "crates/urc-web",
 ]
 
 [workspace.package]
@@ -54,3 +56,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 urc-common = { path = "crates/urc-common" }
+urc-files = { path = "crates/urc-files" }
+urc-web = { path = "crates/urc-web" }
+tower-http = { version = "0.6", features = ["fs", "trace"] }

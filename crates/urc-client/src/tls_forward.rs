@@ -70,7 +70,76 @@ fn tls_server_name(host: &str) -> Result<ServerName<'static>> {
         .context("invalid server name for TLS")
 }
 
+/// Pick an unused localhost TCP port by binding ephemerally.
+pub fn pick_free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .ok()
+        .and_then(|l| l.local_addr().ok())
+        .map(|a| a.port())
+        .unwrap_or(15090)
+}
+
+/// Verify the remote agent's unified web port: TLS handshake succeeds and the
+/// `urc-web` service answers `/api/health`. Distinct from the legacy VNC banner
+/// preflight because the web port speaks HTTP-in-TLS, not raw RFB.
+pub async fn preflight_remote_web(remote_host: &str, remote_port: u16) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    let connector = tls_connector()?;
+    let server_name = tls_server_name(remote_host)?;
+
+    let stream = timeout(
+        Duration::from_secs(12),
+        TcpStream::connect((remote_host, remote_port)),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "timeout connecting to {remote_host}:{remote_port}\n\
+             • Is the PC online on Tailscale?\n\
+             • Is urc-agent running? (on the PC: sudo systemctl status urc-agent)\n\
+             • Is someone logged into the desktop? (the unified UI starts after login)"
+        )
+    })?
+    .with_context(|| format!("connect to {remote_host}:{remote_port}"))?;
+
+    let mut tls = timeout(
+        Duration::from_secs(12),
+        connector.connect(server_name, stream),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("TLS handshake timeout with {remote_host}:{remote_port}"))?
+    .with_context(|| format!("TLS to {remote_host}:{remote_port}"))?;
+
+    let req = "GET /api/health HTTP/1.1\r\nHost: urc-agent\r\nConnection: close\r\n\r\n";
+    tls.write_all(req.as_bytes())
+        .await
+        .context("write health probe")?;
+
+    let mut buf = [0u8; 64];
+    let n = timeout(Duration::from_secs(8), tls.read(&mut buf))
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "timeout reading health response from {remote_host}:{remote_port}\n\
+                 urc-agent's web service did not respond — check logs on the PC."
+            )
+        })??;
+
+    let head = String::from_utf8_lossy(&buf[..n]);
+    if !head.starts_with("HTTP/1.1 200") && !head.starts_with("HTTP/1.0 200") {
+        anyhow::bail!(
+            "{remote_host}:{remote_port} TLS works but health check returned: {head}\n\
+             Check urc-agent logs: journalctl -u urc-agent -e"
+        );
+    }
+
+    info!(host = remote_host, port = remote_port, "remote urc-web OK");
+    Ok(())
+}
+
 /// Verify the remote PC exposes VNC inside TLS before opening a viewer.
+#[allow(dead_code)]
 pub async fn preflight_remote_vnc(remote_host: &str, remote_port: u16) -> Result<()> {
     let connector = tls_connector()?;
     let server_name = tls_server_name(remote_host)?;
@@ -122,6 +191,7 @@ pub async fn preflight_remote_vnc(remote_host: &str, remote_port: u16) -> Result
 }
 
 /// After the local forwarder is listening, verify localhost:port speaks VNC through the tunnel.
+#[allow(dead_code)]
 pub async fn probe_local_vnc(local_port: u16) -> Result<()> {
     let stream = timeout(
         Duration::from_secs(12),

@@ -29,5 +29,6 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 urc-common.workspace = true
-urc-files = { path = "../urc-files" }
+urc-files.workspace = true
+urc-web.workspace = true
 uuid.workspace = true

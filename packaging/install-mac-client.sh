@@ -66,54 +66,10 @@ chmod 755 "$INSTALL_PREFIX/bin/urc-client" "$INSTALL_PREFIX/bin/urc"
 
 ts_user="${SUDO_USER:-$USER}"
 
-# Apple Screen Sharing rejects TigerVNC's RFB handshake ("software ... incompatible").
-# Install TigerVNC Viewer for matching client; Screen Sharing remains as fallback.
-#
-# The Homebrew cask renamed the app from "TigerVNC Viewer.app" (<=1.15) to
-# "TigerVNC.app" (>=1.16), so detection has to glob.
-find_tigervnc_app() {
-  local app
-  for app in /Applications/TigerVNC*.app; do
-    [[ -d "$app" ]] || continue
-    if [[ -x "$app/Contents/MacOS/vncviewer" ]]; then
-      echo "$app/Contents/MacOS/vncviewer"
-      return 0
-    fi
-  done
-  return 1
-}
-
-install_tigervnc_viewer() {
-  if find_tigervnc_app >/dev/null; then
-    echo "==> TigerVNC Viewer already installed"
-    return 0
-  fi
-  echo "==> Installing TigerVNC Viewer (matches agent's VNC server for reliable connect)"
-  if ! sudo -u "$ts_user" -H bash -lc 'command -v brew >/dev/null 2>&1'; then
-    echo "==> Installing Homebrew"
-    if ! sudo -u "$ts_user" -H bash -lc \
-        'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
-      echo "WARN: Homebrew install failed; client will fall back to Screen Sharing" >&2
-      return 1
-    fi
-  fi
-  if ! sudo -u "$ts_user" -H bash -lc 'brew install --cask tigervnc'; then
-    echo "WARN: TigerVNC Viewer install failed; client will fall back to Screen Sharing" >&2
-    return 1
-  fi
-  return 0
-}
-install_tigervnc_viewer || true
-
-# Symlink the actual TigerVNC binary into PATH so `which vncviewer` finds it and
-# urc-client routes through the generic VNC launcher instead of Apple Screen Sharing.
-VNC_BIN="$(find_tigervnc_app || true)"
-if [[ -n "$VNC_BIN" ]]; then
-  ln -sf "$VNC_BIN" "$INSTALL_PREFIX/bin/vncviewer"
-  echo "==> Linked TigerVNC Viewer -> $INSTALL_PREFIX/bin/vncviewer"
-  # Strip Gatekeeper quarantine so first launch does not block.
-  app_dir="${VNC_BIN%/Contents/MacOS/vncviewer}"
-  xattr -dr com.apple.quarantine "$app_dir" 2>/dev/null || true
+# Clean up any TigerVNC viewer symlink from earlier URC versions. The new unified
+# web UI replaces the native viewer entirely; `urc connect` just opens a browser.
+if [[ -L "$INSTALL_PREFIX/bin/vncviewer" ]]; then
+  rm -f "$INSTALL_PREFIX/bin/vncviewer"
 fi
 
 echo "==> Installing Tailscale"
@@ -192,12 +148,8 @@ echo "  Client ready"
 echo "============================================"
 echo ""
 echo "  Config: $CLIENT_ENV"
-if [[ -x "$INSTALL_PREFIX/bin/vncviewer" ]] || find_tigervnc_app >/dev/null; then
-  echo "  Viewer: TigerVNC Viewer (opens automatically)"
-else
-  echo "  Viewer: built-in Screen Sharing (TigerVNC Viewer install failed — may hit compatibility errors)"
-fi
+echo "  UI:     unified web app (opens in your default browser)"
 echo ""
 echo "  List your PCs:  urc hosts"
-echo "  Connect:        urc connect NAME"
+echo "  Connect:        urc connect NAME    # then your browser opens automatically"
 echo ""

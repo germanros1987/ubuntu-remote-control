@@ -319,7 +319,9 @@ install_base_packages() {
   fi
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq curl ca-certificates openssl
+  # xclip lets the agent bridge the X11 PRIMARY/CLIPBOARD selections, which the
+  # unified web UI relies on for desktop ↔ browser clipboard sync.
+  apt-get install -y -qq curl ca-certificates openssl xclip
 }
 
 rustc_version_ok() {
@@ -487,10 +489,11 @@ install_desktop_deps() {
 
 install_client_deps() {
   if is_macos; then
-    echo "==> macOS client — uses built-in Screen Sharing (no extra VNC app)"
+    echo "==> macOS client — opens the agent's unified web UI in your default browser"
     return
   fi
-  apt-get install -y -qq tigervnc-viewer || true
+  # Linux client opens xdg-open against http://localhost:<port>/ — no native VNC viewer required.
+  :
 }
 
 setup_vnc_password() {
@@ -673,7 +676,7 @@ print_finish_client() {
   echo ""
   if is_macos; then
     echo "  Config: $CLIENT_ENV_FILE"
-    echo "  Viewer: built-in Screen Sharing (opens automatically)"
+    echo "  UI:     unified web app (opens in your default browser)"
     echo ""
   fi
   echo "  List your PCs:"

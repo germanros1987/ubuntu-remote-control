@@ -1,0 +1,171 @@
+// URC unified web app: noVNC client + files panel.
+//
+// noVNC is vendored at /novnc/core/. The page loads as an ES module so we can
+// `import` RFB directly without a build step.
+
+import RFB from '/novnc/core/rfb.js';
+
+const $ = (id) => document.getElementById(id);
+
+const screenEl  = $('screen');
+const statusEl  = $('status');
+const panelEl   = $('files-panel');
+const listEl    = $('files-list');
+const cwdEl     = $('cwd');
+const errEl     = $('files-error');
+const uploadIn  = $('upload-input');
+const uploadZ   = $('upload-zone');
+
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status ' + (cls || '');
+}
+
+// --- VNC ---------------------------------------------------------------
+
+function vncURL() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}/ws/vnc`;
+}
+
+let rfb;
+function startVNC() {
+  setStatus('connecting…');
+  rfb = new RFB(screenEl, vncURL(), { wsProtocols: ['binary'] });
+  rfb.scaleViewport  = true;   // fit canvas to local window
+  rfb.resizeSession  = false;  // never resize the remote desktop
+  rfb.clipViewport   = false;
+  rfb.viewOnly       = false;
+  rfb.background     = '#111';
+  rfb.showDotCursor  = true;   // tiny dot as the local cursor; remote cursor lives in framebuffer
+
+  rfb.addEventListener('connect',     () => setStatus('connected', 'ok'));
+  rfb.addEventListener('disconnect',  (e) => {
+    const clean = e.detail && e.detail.clean;
+    setStatus(clean ? 'disconnected' : 'connection lost', 'err');
+  });
+  rfb.addEventListener('credentialsrequired', () => {
+    rfb.sendCredentials({ password: '' }); // server uses SecurityTypes=None
+  });
+  rfb.addEventListener('clipboard', (e) => {
+    // remote→local clipboard: best-effort, requires a user gesture in some browsers
+    if (e.detail && e.detail.text && navigator.clipboard) {
+      navigator.clipboard.writeText(e.detail.text).catch(() => {});
+    }
+  });
+}
+
+// Push local clipboard changes back to the remote.
+document.addEventListener('copy', async () => {
+  try {
+    const t = await navigator.clipboard.readText();
+    if (rfb && t) rfb.clipboardPasteFrom(t);
+  } catch (_) { /* clipboard read may be blocked; user can also use paste menu */ }
+});
+
+$('disconnect').onclick = () => { if (rfb) rfb.disconnect(); };
+$('toggle-fullscreen').onclick = () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+};
+
+// --- Files -------------------------------------------------------------
+
+let cwd = '';
+
+function showError(msg) {
+  errEl.textContent = msg;
+  errEl.hidden = !msg;
+}
+
+async function listDir(path) {
+  showError('');
+  const apiPath = path ? `/api/list/${encodeURI(path)}` : '/api/list';
+  const r = await fetch(apiPath);
+  if (!r.ok) { showError(`List failed: ${r.status}`); return; }
+  const entries = await r.json();
+  cwd = path;
+  cwdEl.textContent = '/' + (path || '');
+  renderList(entries);
+}
+
+function renderList(entries) {
+  listEl.innerHTML = '';
+  if (cwd) {
+    const up = row('..', true, () => listDir(parentOf(cwd)));
+    listEl.appendChild(up);
+  }
+  for (const e of entries) {
+    const click = e.is_dir
+      ? () => listDir(cwd ? `${cwd}/${e.name}` : e.name)
+      : null;
+    const r = row(e.name, e.is_dir, click);
+    if (!e.is_dir) {
+      const dl = document.createElement('a');
+      dl.textContent = '↓';
+      dl.className = 'download';
+      dl.href = `/api/download/${encodeURI(cwd ? `${cwd}/${e.name}` : e.name)}`;
+      dl.download = e.name;
+      r.appendChild(dl);
+      const sz = document.createElement('span');
+      sz.className = 'size';
+      sz.textContent = humanSize(e.size);
+      r.appendChild(sz);
+    }
+    listEl.appendChild(r);
+  }
+}
+
+function row(name, isDir, onClick) {
+  const r = document.createElement('div');
+  r.className = 'row' + (isDir ? ' dir' : '');
+  const n = document.createElement('span');
+  n.className = 'name';
+  n.textContent = (isDir ? '📁 ' : '📄 ') + name;
+  if (onClick) { n.style.cursor = 'pointer'; n.onclick = onClick; }
+  r.appendChild(n);
+  return r;
+}
+
+function parentOf(p) {
+  const i = p.lastIndexOf('/');
+  return i < 0 ? '' : p.slice(0, i);
+}
+
+function humanSize(n) {
+  const units = ['B', 'K', 'M', 'G', 'T'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i === 0 ? 0 : 1)}${units[i]}`;
+}
+
+async function uploadFile(file) {
+  const dest = (cwd ? `${cwd}/` : '') + file.name;
+  const form = new FormData();
+  form.append('file', file, file.name);
+  const r = await fetch(`/api/upload/${encodeURI(dest)}`, { method: 'POST', body: form });
+  if (!r.ok) { showError(`Upload ${file.name} failed: ${r.status}`); return; }
+  await listDir(cwd);
+}
+
+uploadIn.addEventListener('change', async (e) => {
+  for (const f of e.target.files) await uploadFile(f);
+  uploadIn.value = '';
+});
+
+['dragenter', 'dragover'].forEach(ev =>
+  uploadZ.addEventListener(ev, (e) => { e.preventDefault(); uploadZ.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev =>
+  uploadZ.addEventListener(ev, (e) => { e.preventDefault(); uploadZ.classList.remove('drag'); }));
+uploadZ.addEventListener('drop', async (e) => {
+  for (const f of e.dataTransfer.files) await uploadFile(f);
+});
+
+$('toggle-files').onclick = () => {
+  panelEl.hidden = !panelEl.hidden;
+  if (!panelEl.hidden) listDir(cwd);
+};
+
+// --- boot --------------------------------------------------------------
+
+startVNC();

@@ -9,6 +9,10 @@ pub const DEFAULT_COORDINATOR_PORT: u16 = 21150;
 pub const DEFAULT_RELAY_VNC_PORT: u16 = 15900;
 pub const DEFAULT_FILES_PORT: u16 = 15901;
 pub const DEFAULT_TLS_LISTEN_PORT: u16 = 15900;
+/// External TLS port for the unified web UI (noVNC + files + future panels).
+pub const DEFAULT_WEB_TLS_PORT: u16 = 15901;
+/// Internal localhost port the urc-web server binds on; only the TLS tunnel reaches it.
+pub const DEFAULT_WEB_INTERNAL_PORT: u16 = 16080;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -85,12 +89,18 @@ pub struct AgentConfig {
     pub token: Option<String>,
     pub coordinator_url: String,
     pub listen_tls_port: u16,
+    #[serde(default = "default_web_tls_port")]
+    pub listen_web_tls_port: u16,
     pub vnc_password_file: Option<String>,
     pub encryption: EncryptionMode,
     pub insecure: bool,
     pub tailscale: TailscaleConfig,
     pub files_root: Option<String>,
     pub backend: BackendPreference,
+}
+
+fn default_web_tls_port() -> u16 {
+    DEFAULT_WEB_TLS_PORT
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -124,6 +134,7 @@ impl Default for AgentConfig {
             token: None,
             coordinator_url: format!("wss://127.0.0.1:{}", DEFAULT_COORDINATOR_PORT),
             listen_tls_port: DEFAULT_TLS_LISTEN_PORT,
+            listen_web_tls_port: DEFAULT_WEB_TLS_PORT,
             vnc_password_file: Some("/etc/urc/vncpasswd".into()),
             encryption: EncryptionMode::Tls,
             insecure: false,

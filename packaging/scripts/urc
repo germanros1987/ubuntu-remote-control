@@ -21,21 +21,10 @@ load_client_env() {
   fi
 }
 
-# macOS /bin/bash 3.2: "${arr[@]}" on an empty array fails with set -u.
+# urc-client picks up URC_TAILSCALE_BIN from the environment exported by load_client_env;
+# no extra command-line flags are needed for the unified web flow.
 urc_client() {
-  local subcmd=$1
-  shift
-  local coordinator="${URC_COORDINATOR:-}"
-  local token="${URC_TOKEN:-}"
-  if [[ -n "$coordinator" && -n "$token" ]]; then
-    exec urc-client --coordinator "$coordinator" --token "$token" "$subcmd" "$@"
-  elif [[ -n "$coordinator" ]]; then
-    exec urc-client --coordinator "$coordinator" "$subcmd" "$@"
-  elif [[ -n "$token" ]]; then
-    exec urc-client --token "$token" "$subcmd" "$@"
-  else
-    exec urc-client "$subcmd" "$@"
-  fi
+  exec urc-client "$@"
 }
 
 cmd="${1:-}"
