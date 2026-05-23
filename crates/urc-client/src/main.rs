@@ -98,6 +98,7 @@ async fn list_hosts() -> Result<()> {
     let json = tokio::task::spawn_blocking(urc_common::tailscale::status_json)
         .await
         .context("tailscale status")??;
+    urc_common::tailscale::ensure_local_running(&json)?;
     let peers = urc_common::tailscale::list_peers(&json);
 
     if peers.is_empty() {
@@ -126,6 +127,7 @@ async fn connect_host(
     let json = tokio::task::spawn_blocking(urc_common::tailscale::status_json)
         .await
         .context("tailscale status")??;
+    urc_common::tailscale::ensure_local_running(&json)?;
     let peers = urc_common::tailscale::list_peers(&json);
 
     if let Some(peer) = urc_common::tailscale::resolve_peer(&peers, host_id) {

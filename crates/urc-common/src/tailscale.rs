@@ -143,6 +143,46 @@ pub fn self_ipv4(json: &Value) -> Option<String> {
     peer_ipv4(json.get("Self")?)
 }
 
+/// Local Tailscale daemon state — one of NoState / NeedsLogin / NeedsMachineAuth /
+/// Stopped / Starting / Running. Returns the raw string so callers can produce a
+/// targeted error message; missing field is treated as Unknown.
+pub fn local_backend_state(json: &Value) -> &str {
+    json.get("BackendState")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+}
+
+/// Whether this machine's tailnet membership looks healthy enough to reach peers.
+pub fn ensure_local_running(json: &Value) -> Result<()> {
+    let state = local_backend_state(json);
+    if state == "Running" {
+        // Check Self.Online too — daemon up but node may be flagged offline by control plane.
+        let self_online = json
+            .get("Self")
+            .and_then(|s| s.get("Online"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if !self_online {
+            anyhow::bail!(
+                "Tailscale is running locally but this machine is offline on the tailnet \
+                 (control plane has not seen it).\n\
+                 Try: tailscale down && tailscale up"
+            );
+        }
+        return Ok(());
+    }
+    let hint = match state {
+        "NeedsLogin" | "NoState" => "Run: tailscale up",
+        "NeedsMachineAuth" => "Approve this machine in the Tailscale admin console.",
+        "Stopped" => "Run: tailscale up",
+        "Starting" => "Tailscale is still connecting — retry in a few seconds.",
+        _ => "Run: tailscale up",
+    };
+    anyhow::bail!(
+        "Tailscale is not connected on this machine (BackendState={state}).\n{hint}"
+    )
+}
+
 /// All remote peers in the tailnet (excludes this machine).
 pub fn list_peers(json: &Value) -> Vec<TailscalePeer> {
     let Some(peers) = json.get("Peer").and_then(|p| p.as_object()) else {
