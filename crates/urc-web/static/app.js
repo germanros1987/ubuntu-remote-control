@@ -161,6 +161,38 @@ $('copy-from-remote').onclick = async () => {
   }
 };
 
+// Poll the remote X CLIPBOARD via /api/clipboard. The legacy RFB clipboard
+// channel doesn't fire on x0vncserver, so a poll is the simplest reliable
+// transport for remote→local copies. Cheap: a single GET every 3s and skipped
+// when the tab isn't visible.
+let lastPolledRemoteClipboard = '';
+async function pollRemoteClipboard() {
+  if (document.visibilityState !== 'visible') return;
+  try {
+    const r = await fetch('/api/clipboard', { cache: 'no-store' });
+    if (!r.ok) return;
+    const text = await r.text();
+    if (!text || text === lastPolledRemoteClipboard) return;
+    lastPolledRemoteClipboard = text;
+    lastRemoteClipboard = text;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(
+        () => {
+          setStatus('remote clipboard copied locally', 'ok');
+          setTimeout(() => setStatus('connected', 'ok'), 2000);
+          $('copy-from-remote').hidden = true;
+        },
+        () => {
+          $('copy-from-remote').hidden = false;
+          setStatus('remote sent clipboard — click 📥 Copy to receive', 'ok');
+        },
+      );
+    }
+  } catch (_) { /* network blip — try again next tick */ }
+}
+setInterval(pollRemoteClipboard, 3000);
+document.addEventListener('visibilitychange', pollRemoteClipboard);
+
 document.addEventListener('paste', async (e) => {
   // Skip when noVNC has focus on the canvas — we want Cmd-V there to reach the
   // remote OS as a real keystroke, not duplicate via the clipboard channel.

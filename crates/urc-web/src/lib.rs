@@ -56,14 +56,20 @@ pub fn web_router(files_root: PathBuf, vnc_port: u16, desktop: DesktopSession) -
         get(move |ws: WebSocketUpgrade| async move { vnc_ws_handler(ws, vnc_port).await }),
     );
 
-    let clipboard_user = desktop.clone();
-    let clipboard_route = Router::new().route(
-        "/api/clipboard",
-        post(move |body: String| {
-            let d = clipboard_user.clone();
-            async move { set_clipboard_handler(d, body).await }
-        }),
-    );
+    let clipboard_user_post = desktop.clone();
+    let clipboard_user_get = desktop.clone();
+    let clipboard_route = Router::new()
+        .route(
+            "/api/clipboard",
+            post(move |body: String| {
+                let d = clipboard_user_post.clone();
+                async move { set_clipboard_handler(d, body).await }
+            })
+            .get(move || {
+                let d = clipboard_user_get.clone();
+                async move { get_clipboard_handler(d).await }
+            }),
+        );
 
     Router::new()
         .route("/", get(serve_index))
@@ -89,6 +95,66 @@ pub async fn spawn_web_server(
             warn!(error = %e, "urc-web server exited");
         }
     }))
+}
+
+/// Read the desktop user's X CLIPBOARD selection. Used by the browser to poll
+/// for remote-side copies (the legacy RFB clipboard channel doesn't fire on
+/// Ubuntu 24.04's x0vncserver, so we read the selection directly).
+async fn get_clipboard_handler(desktop: DesktopSession) -> Response {
+    match read_xclip(&desktop, "clipboard").await {
+        Ok(text) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            text,
+        )
+            .into_response(),
+        Err(e) => {
+            // Empty selection trips a non-zero exit; treat that as "no clipboard yet"
+            // so the browser stays silent instead of flashing an error.
+            if e.to_string().contains("exit code") || e.to_string().contains("no such") {
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                    String::new(),
+                )
+                    .into_response();
+            }
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+async fn read_xclip(desktop: &DesktopSession, selection: &str) -> Result<String> {
+    use tokio::process::Command;
+    let running_as_target =
+        std::env::var("USER").ok().as_deref() == Some(desktop.username.as_str());
+
+    let mut cmd = if running_as_target {
+        let mut c = Command::new("xclip");
+        c.env("DISPLAY", &desktop.display);
+        if let Some(xauth) = &desktop.xauthority {
+            c.env("XAUTHORITY", xauth);
+        }
+        c.args(["-selection", selection, "-o"]);
+        c
+    } else {
+        let mut c = Command::new("runuser");
+        c.args(["-u", &desktop.username, "--", "env"]);
+        c.arg(format!("DISPLAY={}", desktop.display));
+        if let Some(xauth) = &desktop.xauthority {
+            c.arg(format!("XAUTHORITY={xauth}"));
+        }
+        c.args(["xclip", "-selection", selection, "-o"]);
+        c
+    };
+
+    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+    let out = cmd.output().await?;
+    if !out.status.success() {
+        // xclip exits non-zero when selection is empty — surface as empty string.
+        return Ok(String::new());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 /// Write the request body into the desktop user's X CLIPBOARD selection.
