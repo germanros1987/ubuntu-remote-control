@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: cargo build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x86_64
+            cmd: cargo build --release
+          - runner: ubuntu-24.04-arm
+            target: linux-aarch64
+            cmd: cargo build --release
+          - runner: macos-14
+            target: darwin-aarch64
+            cmd: cargo build --release -p urc-client
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: ${{ matrix.cmd }}
+
+      - name: Verify install scripts
+        run: |
+          test -f install
+          test -f packaging/install.sh
+          test -f packaging/install-mac-client.sh
+          bash -n install
+          bash -n packaging/install.sh
+          bash -n packaging/install-mac-client.sh
