@@ -111,6 +111,13 @@ sed_inplace() {
   fi
 }
 
+# GNU install -D is not portable (macOS BSD install breaks with INS@ temp files).
+install_file() {
+  local mode="$1" src="$2" dest="$3"
+  mkdir -p "$(dirname "$dest")"
+  install -m "$mode" "$src" "$dest"
+}
+
 has_desktop() {
   is_linux || return 1
   dpkg -l ubuntu-desktop-minimal 2>/dev/null | grep -q '^ii' || \
@@ -355,8 +362,8 @@ install_build_deps() {
 install_client_binaries() {
   if [[ -n "${URC_SKIP_BUILD:-}" ]] && [[ -n "${URC_BIN_DIR:-}" ]]; then
     echo "==> Installing prebuilt client"
-    install -Dm755 "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
-    install -Dm755 "$URC_BIN_DIR/urc" "$INSTALL_PREFIX/bin/urc"
+    install_file 755 "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
+    install_file 755 "$URC_BIN_DIR/urc" "$INSTALL_PREFIX/bin/urc"
     return
   fi
   install_build_deps
@@ -367,8 +374,8 @@ install_client_binaries() {
     cd "$REPO_ROOT"
     cargo build --release -p urc-client
   fi
-  install -Dm755 "$REPO_ROOT/target/release/urc-client" "$INSTALL_PREFIX/bin/urc-client"
-  install -Dm755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
+  install_file 755 "$REPO_ROOT/target/release/urc-client" "$INSTALL_PREFIX/bin/urc-client"
+  install_file 755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
 }
 
 build_and_install_binaries() {
@@ -378,20 +385,20 @@ build_and_install_binaries() {
   fi
   if [[ -n "${URC_SKIP_BUILD:-}" ]] && [[ -n "${URC_BIN_DIR:-}" ]]; then
     echo "==> Installing prebuilt binaries"
-    install -Dm755 "$URC_BIN_DIR/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
-    install -Dm755 "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
-    install -Dm755 "$URC_BIN_DIR/urc-coordinator" "$INSTALL_PREFIX/bin/urc-coordinator"
-    install -Dm755 "$URC_BIN_DIR/urc" "$INSTALL_PREFIX/bin/urc"
+    install_file 755 "$URC_BIN_DIR/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
+    install_file 755 "$URC_BIN_DIR/urc-client" "$INSTALL_PREFIX/bin/urc-client"
+    install_file 755 "$URC_BIN_DIR/urc-coordinator" "$INSTALL_PREFIX/bin/urc-coordinator"
+    install_file 755 "$URC_BIN_DIR/urc" "$INSTALL_PREFIX/bin/urc"
     return
   fi
   install_build_deps
   cd "$REPO_ROOT"
   echo "==> Building URC (first install — may take a few minutes)"
   cargo build --release
-  install -Dm755 target/release/urc-agent "$INSTALL_PREFIX/bin/urc-agent"
-  install -Dm755 target/release/urc-client "$INSTALL_PREFIX/bin/urc-client"
-  install -Dm755 target/release/urc-coordinator "$INSTALL_PREFIX/bin/urc-coordinator"
-  install -Dm755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
+  install_file 755 target/release/urc-agent "$INSTALL_PREFIX/bin/urc-agent"
+  install_file 755 target/release/urc-client "$INSTALL_PREFIX/bin/urc-client"
+  install_file 755 target/release/urc-coordinator "$INSTALL_PREFIX/bin/urc-coordinator"
+  install_file 755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
 }
 
 install_agent_deps() {
@@ -473,21 +480,21 @@ setup_coordinator_config() {
 
 install_libexec() {
   install -d -m755 /usr/libexec/urc
-  install -Dm755 "$REPO_ROOT/packaging/scripts/wait-for-session.sh" /usr/libexec/urc/wait-for-session.sh
-  install -Dm755 "$REPO_ROOT/packaging/scripts/urc-health-check.sh" /usr/libexec/urc/urc-health-check.sh
-  install -Dm755 "$REPO_ROOT/packaging/scripts/urc-coordinator-health-check.sh" /usr/libexec/urc/urc-coordinator-health-check.sh
+  install_file 755 "$REPO_ROOT/packaging/scripts/wait-for-session.sh" /usr/libexec/urc/wait-for-session.sh
+  install_file 755 "$REPO_ROOT/packaging/scripts/urc-health-check.sh" /usr/libexec/urc/urc-health-check.sh
+  install_file 755 "$REPO_ROOT/packaging/scripts/urc-coordinator-health-check.sh" /usr/libexec/urc/urc-coordinator-health-check.sh
 }
 
 install_systemd_units() {
   local udir="$REPO_ROOT/packaging/systemd"
-  install -Dm644 "$udir/urc-agent.service" /etc/systemd/system/urc-agent.service
-  install -Dm644 "$udir/urc-coordinator.service" /etc/systemd/system/urc-coordinator.service
-  install -Dm644 "$udir/urc-agent-health.service" /etc/systemd/system/urc-agent-health.service
-  install -Dm644 "$udir/urc-agent-health.timer" /etc/systemd/system/urc-agent-health.timer
-  install -Dm644 "$udir/urc-coordinator-health.service" /etc/systemd/system/urc-coordinator-health.service
-  install -Dm644 "$udir/urc-coordinator-health.timer" /etc/systemd/system/urc-coordinator-health.timer
-  install -Dm644 "$udir/urc-agent-login.path" /etc/systemd/system/urc-agent-login.path
-  install -Dm644 "$udir/urc-agent-login.service" /etc/systemd/system/urc-agent-login.service
+  install_file 644 "$udir/urc-agent.service" /etc/systemd/system/urc-agent.service
+  install_file 644 "$udir/urc-coordinator.service" /etc/systemd/system/urc-coordinator.service
+  install_file 644 "$udir/urc-agent-health.service" /etc/systemd/system/urc-agent-health.service
+  install_file 644 "$udir/urc-agent-health.timer" /etc/systemd/system/urc-agent-health.timer
+  install_file 644 "$udir/urc-coordinator-health.service" /etc/systemd/system/urc-coordinator-health.service
+  install_file 644 "$udir/urc-coordinator-health.timer" /etc/systemd/system/urc-coordinator-health.timer
+  install_file 644 "$udir/urc-agent-login.path" /etc/systemd/system/urc-agent-login.path
+  install_file 644 "$udir/urc-agent-login.service" /etc/systemd/system/urc-agent-login.service
   systemctl daemon-reload
 }
 
