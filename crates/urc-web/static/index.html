@@ -31,10 +31,9 @@
 
       <div id="upload-zone" class="upload">
         <p>Drop files here to upload, or</p>
-        <label class="btn">
-          Choose files…
-          <input type="file" id="upload-input" multiple hidden>
-        </label>
+        <label class="btn" for="upload-input">Choose files…</label>
+        <input type="file" id="upload-input" multiple class="visually-hidden">
+        <div id="upload-progress" class="upload-progress" hidden></div>
       </div>
 
       <div id="files-list"></div>

@@ -205,8 +205,39 @@ async function uploadFile(file) {
   const dest = (cwd ? `${cwd}/` : '') + file.name;
   const form = new FormData();
   form.append('file', file, file.name);
-  const r = await fetch(`/api/upload/${encodeURI(dest)}`, { method: 'POST', body: form });
-  if (!r.ok) { showError(`Upload ${file.name} failed: ${r.status}`); return; }
+
+  const progress = $('upload-progress');
+  progress.hidden = false;
+  progress.textContent = `Uploading ${file.name}… 0%`;
+  showError('');
+
+  await new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/upload/${encodeURI(dest)}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const pct = ((e.loaded / e.total) * 100).toFixed(0);
+        progress.textContent = `Uploading ${file.name}… ${pct}% (${humanSize(e.loaded)}/${humanSize(e.total)})`;
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        progress.textContent = `Uploaded ${file.name}`;
+        setTimeout(() => { progress.hidden = true; }, 1500);
+      } else {
+        showError(`Upload ${file.name} failed: HTTP ${xhr.status} ${xhr.responseText || ''}`);
+        progress.hidden = true;
+      }
+      resolve();
+    };
+    xhr.onerror = () => {
+      showError(`Upload ${file.name} failed: network error`);
+      progress.hidden = true;
+      resolve();
+    };
+    xhr.send(form);
+  });
+
   await listDir(cwd);
 }
 
