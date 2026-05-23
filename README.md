@@ -10,8 +10,15 @@ Use the **same Tailscale account** on every machine.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
-# Choose: 1) PC I remote INTO
+# When prompted, choose: 1) PC I remote INTO
 # Sign in to Tailscale when prompted
+```
+
+Or pass the role directly (no menu):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+  sudo bash -s -- --role agent
 ```
 
 ### 2. Your laptop
@@ -19,7 +26,12 @@ curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control
 ```bash
 curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
 # Choose: 2) Laptop I connect FROM
-# Sign in to Tailscale (same account)
+```
+
+```bash
+# Or non-interactive:
+curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+  sudo bash -s -- --role client
 ```
 
 ### 3. Connect

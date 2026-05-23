@@ -64,12 +64,52 @@ if [[ -n "${URC_BINARIES_URL:-}" ]]; then
   exec bash "$WORKDIR/packaging/install.sh" "$@"
 fi
 
+GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
+BR="${URC_BRANCH:-main}"
+RAW="https://raw.githubusercontent.com/${GH}/${BR}"
+
+# Packaging files (always from repo — small)
+mkdir -p "$WORKDIR/packaging/systemd" "$WORKDIR/packaging/scripts"
+for f in packaging/install.sh packaging/scripts/urc \
+  packaging/scripts/wait-for-session.sh \
+  packaging/scripts/urc-health-check.sh \
+  packaging/scripts/urc-coordinator-health-check.sh \
+  packaging/systemd/urc-agent.service \
+  packaging/systemd/urc-coordinator.service \
+  packaging/systemd/urc-agent-health.service \
+  packaging/systemd/urc-agent-health.timer \
+  packaging/systemd/urc-coordinator-health.service \
+  packaging/systemd/urc-coordinator-health.timer \
+  packaging/systemd/urc-agent-login.path \
+  packaging/systemd/urc-agent-login.service; do
+  curl -fsSL "$RAW/$f" -o "$WORKDIR/$f"
+done
+chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/scripts/"*
+
+# Prebuilt binaries from GitHub Releases (fast path — no Rust on target)
+if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64|amd64) PREBUILT_ASSET="linux-x86_64" ;;
+    aarch64|arm64) PREBUILT_ASSET="linux-aarch64" ;;
+    *) PREBUILT_ASSET="" ;;
+  esac
+  if [[ -n "$PREBUILT_ASSET" ]]; then
+    PREBUILT_URL="https://github.com/${GH}/releases/latest/download/${PREBUILT_ASSET}.tar.gz"
+    mkdir -p "$WORKDIR/bin"
+    if curl -fsSL "$PREBUILT_URL" | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
+      echo "==> Using prebuilt binaries (${PREBUILT_ASSET})"
+      export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
+      exec bash "$WORKDIR/packaging/install.sh" "$@"
+    fi
+    echo "==> No prebuilt release for ${PREBUILT_ASSET}; building from source"
+  fi
+fi
+
 if [[ -n "${URC_SOURCE_TARBALL:-}" ]]; then
-  echo "==> Downloading tarball"
+  echo "==> Downloading source tarball"
   curl -fsSL "$URC_SOURCE_TARBALL" | tar xz -C "$WORKDIR" --strip-components=1
 else
-  GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
-  BR="${URC_BRANCH:-main}"
   URL="https://github.com/${GH}/archive/refs/heads/${BR}.tar.gz"
   echo "==> Downloading source (curl)"
   curl -fsSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1

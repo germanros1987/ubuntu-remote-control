@@ -67,17 +67,27 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
+# Read from the terminal (works with: curl ... | sudo bash)
 prompt() {
   local msg="$1" default="${2:-}"
   if $NONINTERACTIVE; then
     echo "${default}"
     return
   fi
+  if [[ ! -r /dev/tty ]]; then
+    echo "ERROR: Interactive install needs a terminal (stdin is not your keyboard)." >&2
+    echo "  Save and run: curl -fsSL ... -o /tmp/urc-install.sh && sudo bash /tmp/urc-install.sh" >&2
+    echo "  Or pass a role:  curl ... | sudo bash -s -- --role agent|client|coordinator" >&2
+    exit 1
+  fi
+  local ans=""
   if [[ -n "$default" ]]; then
-    read -r -p "$msg [$default]: " ans || true
+    printf '%s [%s]: ' "$msg" "$default" >/dev/tty
+    read -r ans </dev/tty || true
     echo "${ans:-$default}"
   else
-    read -r -p "$msg: " ans || true
+    printf '%s: ' "$msg" >/dev/tty
+    read -r ans </dev/tty || true
     echo "$ans"
   fi
 }
@@ -108,9 +118,9 @@ setup_tailscale() {
   if ! tailscale status --json 2>/dev/null | grep -qE '"BackendState":"Running"|"State":10'; then
     if [[ -n "$TAILSCALE_AUTH_KEY" ]]; then
       tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --accept-routes
-    elif ! $NONINTERACTIVE; then
-      echo "Sign in to Tailscale (open the URL below if prompted):"
-      tailscale up || true
+    elif ! $NONINTERACTIVE && [[ -r /dev/tty ]]; then
+      echo "Sign in to Tailscale (open the URL below if prompted):" >/dev/tty
+      tailscale up </dev/tty >/dev/tty 2>&1 || true
     else
       echo "Tailscale installed. Finish login with: sudo tailscale up"
       echo "  (or pass --tailscale-auth-key / set URC_TAILSCALE_AUTH_KEY)"
@@ -225,14 +235,32 @@ configure_role_interactive() {
 
 # --- deps & build ---
 
-echo "==> Installing system packages"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq curl ca-certificates openssl
+install_base_packages() {
+  echo "==> Installing system packages"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq curl ca-certificates openssl
+}
 
 install_build_deps() {
-  if ! command -v cargo >/dev/null 2>&1; then
-    apt-get install -y -qq cargo rustc
+  # rustup shim without a default toolchain breaks `cargo build`
+  if command -v rustup >/dev/null 2>&1; then
+    echo "==> Configuring Rust toolchain"
+    if [[ -n "${SUDO_USER:-}" ]] && [[ "$(id -u)" -eq 0 ]]; then
+      sudo -u "$SUDO_USER" -H rustup default stable 2>/dev/null || true
+    else
+      rustup default stable 2>/dev/null || true
+    fi
+  fi
+  if ! cargo --version >/dev/null 2>&1; then
+    apt-get install -y -qq cargo rustc build-essential pkg-config
+  fi
+  if ! cargo --version >/dev/null 2>&1 && [[ -x /usr/bin/cargo ]]; then
+    export PATH="/usr/bin:/usr/sbin:$PATH"
+  fi
+  if ! cargo --version >/dev/null 2>&1; then
+    echo "ERROR: Could not run cargo. Try: sudo apt install cargo rustc  OR  rustup default stable" >&2
+    exit 1
   fi
 }
 
@@ -417,6 +445,8 @@ print_finish_client() {
 }
 
 # --- main ---
+
+install_base_packages
 
 if [[ -z "$ROLE" ]]; then
   run_interactive
