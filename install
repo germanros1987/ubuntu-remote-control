@@ -28,11 +28,23 @@ if [[ -f "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ "
   fi
 fi
 
-WORKDIR="${URC_WORKDIR:-$(mktemp -d /tmp/urc-install.XXXXXX)}"
+BUILD_USER="${SUDO_USER:-}"
+if [[ -z "$BUILD_USER" ]] && [[ "$(uname -s)" == "Darwin" ]]; then
+  BUILD_USER="$(logname 2>/dev/null || true)"
+fi
+
+if [[ -n "${URC_WORKDIR:-}" ]]; then
+  WORKDIR="$URC_WORKDIR"
+elif [[ "$(uname -s)" == "Darwin" && -n "$BUILD_USER" && "$BUILD_USER" != "root" ]]; then
+  # Avoid root-owned trees + tar ownership restore (chown: user: illegal group name on macOS).
+  WORKDIR="$(sudo -u "$BUILD_USER" mktemp -d "${TMPDIR:-/tmp}/urc-install.XXXXXX")"
+else
+  WORKDIR="$(mktemp -d /tmp/urc-install.XXXXXX)"
+fi
 cleanup() { [[ -n "${URC_KEEP_WORKDIR:-}" ]] || rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
-echo "==> Ubuntu Remote Control (installer 9a14d77+)"
+echo "==> Ubuntu Remote Control (installer mac-tar-fix)"
 
 GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
 BR="${URC_BRANCH:-main}"
@@ -63,12 +75,10 @@ fetch() {
   curl -fsSL "$RAW/$1" -o "$WORKDIR/$1"
 }
 
-# GitHub source tarballs carry Linux ownership; macOS tar then errors:
-#   chown: user: illegal group name
 extract_source_tarball() {
   local url="$1"
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    curl -fsSL "$url" | tar xz --no-same-owner -C "$WORKDIR" --strip-components=1
+  if [[ "$(uname -s)" == "Darwin" && -n "$BUILD_USER" && "$BUILD_USER" != "root" ]]; then
+    sudo -u "$BUILD_USER" bash -c "curl -fsSL '$url' | tar xz -C '$WORKDIR' --strip-components=1"
   else
     curl -fsSL "$url" | tar xz -C "$WORKDIR" --strip-components=1
   fi
@@ -167,17 +177,16 @@ if [[ ! -f "$WORKDIR/packaging/install.sh" ]]; then
   exit 1
 fi
 
-# Cargo builds run as SUDO_USER; workdir must be writable.
-# Use owner-only chown (no group) — macOS groups are often "staff", not the username.
-if [[ -n "${SUDO_USER:-}" ]] && [[ -d "$WORKDIR" ]]; then
-  chown -R "$SUDO_USER" "$WORKDIR"
+# Linux: cargo builds run as SUDO_USER; root-owned workdir must be handed off.
+if [[ "$(uname -s)" == "Linux" && -n "$BUILD_USER" && -d "$WORKDIR" ]]; then
+  chown -R "$BUILD_USER" "$WORKDIR"
 fi
 
 export REPO_ROOT="$WORKDIR"
 
 build_mac_client_binaries() {
   local root="$1"
-  local build_user="${SUDO_USER:-$USER}"
+  local build_user="${BUILD_USER:-${SUDO_USER:-$USER}}"
   if [[ -f "$root/target/release/urc-client" ]] && [[ -f "$root/target/release/urc" ]]; then
     return 0
   fi
