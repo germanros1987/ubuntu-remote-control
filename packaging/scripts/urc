@@ -6,31 +6,58 @@ CLIENT_ENV="/usr/local/etc/urc/client.env"
 [[ -f "$CLIENT_ENV" ]] || CLIENT_ENV="/etc/urc/client.env"
 [[ -f "$CLIENT_ENV" ]] || CLIENT_ENV="${HOME}/.config/urc/client.env"
 
+load_client_env() {
+  if [[ -f "$CLIENT_ENV" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$CLIENT_ENV"
+    set +a
+  fi
+}
+
+# macOS /bin/bash 3.2: "${arr[@]}" on an empty array fails with set -u.
+urc_client() {
+  local subcmd=$1
+  shift
+  local coordinator="${URC_COORDINATOR:-}"
+  local token="${URC_TOKEN:-}"
+  if [[ -n "$coordinator" && -n "$token" ]]; then
+    exec urc-client --coordinator "$coordinator" --token "$token" "$subcmd" "$@"
+  elif [[ -n "$coordinator" ]]; then
+    exec urc-client --coordinator "$coordinator" "$subcmd" "$@"
+  elif [[ -n "$token" ]]; then
+    exec urc-client --token "$token" "$subcmd" "$@"
+  else
+    exec urc-client "$subcmd" "$@"
+  fi
+}
+
 cmd="${1:-}"
-shift || true
+if [[ $# -gt 0 ]]; then
+  shift
+fi
 
 case "$cmd" in
   connect|c)
-    [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
+    load_client_env
     host="${1:-${URC_DEFAULT_HOST:-}}"
     if [[ -z "$host" ]]; then
       echo "Usage: urc connect NAME" >&2
       echo "Run: urc hosts" >&2
       exit 1
     fi
-    extra=()
-    [[ -n "${URC_COORDINATOR:-}" ]] && extra+=(--coordinator "$URC_COORDINATOR")
-    [[ -n "${URC_TOKEN:-}" ]] && extra+=(--token "$URC_TOKEN")
-    exec urc-client "${extra[@]}" connect "$host"
+    urc_client connect "$host"
     ;;
   status|health)
-    exec urc-agent "${cmd}" "$@"
+    if [[ $# -gt 0 ]]; then
+      exec urc-agent "$cmd" "$@"
+    else
+      exec urc-agent "$cmd"
+    fi
     ;;
   hosts)
-    [[ -f "$CLIENT_ENV" ]] && set -a && source "$CLIENT_ENV" && set +a
-    extra=()
-    [[ -n "${URC_COORDINATOR:-}" ]] && extra+=(--coordinator "$URC_COORDINATOR")
-    exec urc-client "${extra[@]}" hosts
+    load_client_env
+    urc_client hosts
     ;;
   ""|help|-h|--help)
     cat <<'EOF'
