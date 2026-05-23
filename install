@@ -97,12 +97,12 @@ if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
   if [[ -n "$PREBUILT_ASSET" ]]; then
     PREBUILT_URL="https://github.com/${GH}/releases/latest/download/${PREBUILT_ASSET}.tar.gz"
     mkdir -p "$WORKDIR/bin"
-    if curl -fsSL "$PREBUILT_URL" | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
+    if curl -fsSL "$PREBUILT_URL" 2>/dev/null | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
       echo "==> Using prebuilt binaries (${PREBUILT_ASSET})"
       export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
       exec bash "$WORKDIR/packaging/install.sh" "$@"
     fi
-    echo "==> No prebuilt release for ${PREBUILT_ASSET}; building from source"
+    echo "==> Building from source (publish a GitHub release to skip compile)"
   fi
 fi
 
