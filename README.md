@@ -9,7 +9,7 @@ Use the **same Tailscale account** on every machine.
 ### 1. Each PC you want to control
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
 # When prompted, choose: 1) PC I remote INTO
 # Sign in to Tailscale when prompted
 ```
@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control
 Or pass the role directly (no menu):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
   sudo bash -s -- --role agent
 ```
 
@@ -25,19 +25,19 @@ curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control
 
 **Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
 # Choose: 2) Laptop I connect FROM
 ```
 
 **macOS** (client only — same Tailscale account):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
 # Detects macOS — client + Tailscale; remote desktop via built-in Screen Sharing
 ```
 
 ```bash
 # Non-interactive (Linux or Mac):
-curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
   sudo bash -s -- --role client
 ```
 
@@ -66,11 +66,11 @@ Optional **VPS relay** is still available for advanced setups (`--coordinator-ur
 ```bash
 # PC (unattended Tailscale login)
 URC_TAILSCALE_AUTH_KEY=tskey-auth-... \
-  curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+  curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
   sudo bash -s -- --role agent -y
 
 # Laptop
-curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | \
+curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | \
   sudo bash -s -- --role client -y
 ```
 

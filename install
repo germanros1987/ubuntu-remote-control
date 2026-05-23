@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
 # Ubuntu Remote Control — install via curl (no git)
 #
-#   curl -fsSL https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main/install | sudo bash
-#
-# Optional:
-#   URC_GITHUB=germanros1987/ubuntu-remote-control
-#   URC_SOURCE_TARBALL=https://your-server/urc-source.tar.gz
-#   URC_BINARIES_URL=https://your-server/linux-x86_64
-#   URC_RAW_URL=https://raw.githubusercontent.com/germanros1987/ubuntu-remote-control/main
+#   curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/latest/download/install | sudo bash
 #
 set -euo pipefail
 
@@ -15,22 +9,52 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exec sudo -E bash "$0" "$@"
 fi
 
-# Local run from checkout: ./install lives next to Cargo.toml
+# Local run from checkout
 if [[ -f "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" != "bash" ]] && [[ "${BASH_SOURCE[0]}" != "-" ]]; then
   _src="${BASH_SOURCE[0]}"
   [[ -L "$_src" ]] && _src="$(readlink -f "$_src")"
   _root="$(cd "$(dirname "$_src")" && pwd)"
   if [[ -f "$_root/Cargo.toml" ]] && [[ -f "$_root/packaging/install.sh" ]]; then
+    if [[ "$(uname -s)" == "Darwin" ]] && [[ "${1:-}" == "--role" ]] && [[ "${2:-}" == "client" ]]; then
+      export URC_BIN_DIR="${URC_BIN_DIR:-$_root/target/release}"
+      if [[ ! -f "$URC_BIN_DIR/urc-client" ]]; then
+        echo "Build first: cargo build --release -p urc-client" >&2
+        exit 1
+      fi
+      cp -f "$_root/packaging/scripts/urc" "$URC_BIN_DIR/urc"
+      exec bash "$_root/packaging/install-mac-client.sh" "$@"
+    fi
     exec bash "$_root/packaging/install.sh" "$@"
   fi
 fi
 
-# --- curl | bash: download with curl, never git ---
 WORKDIR="${URC_WORKDIR:-$(mktemp -d /tmp/urc-install.XXXXXX)}"
 cleanup() { [[ -n "${URC_KEEP_WORKDIR:-}" ]] || rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
 echo "==> Ubuntu Remote Control"
+
+GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
+BR="${URC_BRANCH:-main}"
+
+# raw.githubusercontent.com caches branch tips — use commit SHA for fresh packaging scripts
+git_sha() {
+  curl -fsSL -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${GH}/commits/${BR}" 2>/dev/null \
+    | grep -m1 '"sha"' | sed 's/.*"sha": "\([^"]*\)".*/\1/' || true
+}
+GIT_SHA="$(git_sha)"
+if [[ -n "$GIT_SHA" ]]; then
+  RAW="https://raw.githubusercontent.com/${GH}/${GIT_SHA}"
+  echo "==> Using commit ${GIT_SHA:0:7}"
+else
+  RAW="https://raw.githubusercontent.com/${GH}/${BR}"
+  echo "==> Using branch ${BR}"
+fi
+
+fetch() {
+  curl -fsSL "$RAW/$1" -o "$WORKDIR/$1"
+}
 
 if [[ -n "${URC_BINARIES_URL:-}" ]]; then
   echo "==> Installing prebuilt binaries"
@@ -39,38 +63,25 @@ if [[ -n "${URC_BINARIES_URL:-}" ]]; then
     curl -fsSL "$URC_BINARIES_URL/$bin" -o "$WORKDIR/bin/$bin"
     chmod +x "$WORKDIR/bin/$bin"
   done
-  BASE="${URC_RAW_URL:-${URC_INSTALL_URL:-}}"
-  if [[ -n "$BASE" ]]; then
-    for f in packaging/install.sh packaging/scripts/urc \
-      packaging/scripts/wait-for-session.sh \
-      packaging/scripts/urc-health-check.sh \
-      packaging/scripts/urc-coordinator-health-check.sh \
-      packaging/systemd/urc-agent.service \
-      packaging/systemd/urc-coordinator.service \
-      packaging/systemd/urc-agent-health.service \
-      packaging/systemd/urc-agent-health.timer \
-      packaging/systemd/urc-coordinator-health.service \
-      packaging/systemd/urc-coordinator-health.timer \
-      packaging/systemd/urc-agent-login.path \
-      packaging/systemd/urc-agent-login.service; do
-      curl -fsSL "$BASE/$f" -o "$WORKDIR/$f"
-    done
-    chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/scripts/"*
-  else
-    echo "URC_BINARIES_URL requires URC_RAW_URL (packaging file base)" >&2
-    exit 1
-  fi
+  for f in packaging/install.sh packaging/install-mac-client.sh packaging/scripts/urc \
+    packaging/scripts/wait-for-session.sh packaging/scripts/urc-health-check.sh \
+    packaging/scripts/urc-coordinator-health-check.sh \
+    packaging/systemd/urc-agent.service packaging/systemd/urc-coordinator.service \
+    packaging/systemd/urc-agent-health.service packaging/systemd/urc-agent-health.timer \
+    packaging/systemd/urc-coordinator-health.service packaging/systemd/urc-coordinator-health.timer \
+    packaging/systemd/urc-agent-login.path packaging/systemd/urc-agent-login.service; do
+    fetch "$f"
+  done
+  chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/install-mac-client.sh" "$WORKDIR/packaging/scripts/"*
   export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    exec bash "$WORKDIR/packaging/install-mac-client.sh" "$@"
+  fi
   exec bash "$WORKDIR/packaging/install.sh" "$@"
 fi
 
-GH="${URC_GITHUB:-germanros1987/ubuntu-remote-control}"
-BR="${URC_BRANCH:-main}"
-RAW="https://raw.githubusercontent.com/${GH}/${BR}"
-
-# Packaging files (always from repo — small)
 mkdir -p "$WORKDIR/packaging/systemd" "$WORKDIR/packaging/scripts"
-for f in packaging/install.sh packaging/scripts/urc \
+for f in packaging/install.sh packaging/install-mac-client.sh packaging/scripts/urc \
   packaging/scripts/wait-for-session.sh \
   packaging/scripts/urc-health-check.sh \
   packaging/scripts/urc-coordinator-health-check.sh \
@@ -82,11 +93,11 @@ for f in packaging/install.sh packaging/scripts/urc \
   packaging/systemd/urc-coordinator-health.timer \
   packaging/systemd/urc-agent-login.path \
   packaging/systemd/urc-agent-login.service; do
-  curl -fsSL "$RAW/$f" -o "$WORKDIR/$f"
+  fetch "$f"
 done
-chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/scripts/"*
+chmod +x "$WORKDIR/packaging/install.sh" "$WORKDIR/packaging/install-mac-client.sh" "$WORKDIR/packaging/scripts/"*
 
-# Prebuilt binaries from GitHub Releases (fast path — no Rust on target)
+# Prebuilt binaries from GitHub Releases
 if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
   ARCH="$(uname -m)"
   if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -109,21 +120,16 @@ if [[ -z "${URC_FORCE_BUILD:-}" ]] && [[ -z "${URC_SOURCE_TARBALL:-}" ]]; then
       url="https://github.com/${GH}/releases/download/${tag}/${PREBUILT_ASSET}.tar.gz"
       if curl -fsSL "$url" 2>/dev/null | tar xz -C "$WORKDIR/bin" 2>/dev/null; then
         echo "==> Using prebuilt binaries (${PREBUILT_ASSET} from ${tag})"
-        # macOS: copy with cp before packaging/install.sh (BSD install(1) is unreliable)
-        if [[ "$(uname -s)" == "Darwin" ]] && [[ -f "$WORKDIR/bin/urc-client" ]]; then
-          echo "==> Installing client to /usr/local/bin"
-          mkdir -p /usr/local/bin
-          cp -f "$WORKDIR/bin/urc-client" /usr/local/bin/urc-client
-          cp -f "$WORKDIR/bin/urc" /usr/local/bin/urc
-          chmod 755 /usr/local/bin/urc-client /usr/local/bin/urc
-          export URC_CLIENT_BINARIES_INSTALLED=1
-        fi
         export URC_SKIP_BUILD=1 URC_BIN_DIR="$WORKDIR/bin" REPO_ROOT="$WORKDIR"
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+          exec bash "$WORKDIR/packaging/install-mac-client.sh" "$@"
+        fi
+        export URC_CLIENT_BINARIES_INSTALLED=1
         exec bash "$WORKDIR/packaging/install.sh" "$@"
       fi
     done < <(curl -fsSL "https://api.github.com/repos/${GH}/releases?per_page=15" 2>/dev/null \
       | grep '"tag_name"' | sed 's/.*"tag_name": "\([^"]*\)".*/\1/' || true)
-    echo "==> No prebuilt ${PREBUILT_ASSET} in recent releases; building from source"
+    echo "==> No prebuilt ${PREBUILT_ASSET}; building from source"
   fi
 fi
 
@@ -131,15 +137,18 @@ if [[ -n "${URC_SOURCE_TARBALL:-}" ]]; then
   echo "==> Downloading source tarball"
   curl -fsSL "$URC_SOURCE_TARBALL" | tar xz -C "$WORKDIR" --strip-components=1
 else
-  URL="https://github.com/${GH}/archive/refs/heads/${BR}.tar.gz"
-  echo "==> Downloading source (curl)"
+  URL="https://github.com/${GH}/archive/${GIT_SHA:-refs/heads/${BR}}.tar.gz"
+  echo "==> Downloading source"
   curl -fsSL "$URL" | tar xz -C "$WORKDIR" --strip-components=1
 fi
 
 if [[ ! -f "$WORKDIR/packaging/install.sh" ]]; then
-  echo "Download failed or invalid layout in $WORKDIR" >&2
+  echo "Download failed" >&2
   exit 1
 fi
 
 export REPO_ROOT="$WORKDIR"
+if [[ "$(uname -s)" == "Darwin" ]] && { [[ "${1:-}" == "--role" ]] && [[ "${2:-}" == "client" ]] || [[ -z "${1:-}" ]]; }; then
+  exec bash "$WORKDIR/packaging/install-mac-client.sh" "$@"
+fi
 exec bash "$WORKDIR/packaging/install.sh" "$@"

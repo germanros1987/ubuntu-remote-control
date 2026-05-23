@@ -52,10 +52,22 @@ jobs:
               urc-agent urc-client urc-coordinator urc
           fi
 
+      - name: Release file list
+        if: startsWith(github.ref, 'refs/tags/')
+        id: release_files
+        run: |
+          {
+            echo "${{ matrix.asset }}.tar.gz"
+            if [[ "${{ matrix.asset }}" == "darwin-aarch64" ]]; then
+              echo install
+              echo packaging/install-mac-client.sh
+            fi
+          } > release-files.txt
+
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ${{ matrix.asset }}.tar.gz
+          files: release-files.txt
           generate_release_notes: true
 
       - uses: actions/upload-artifact@v4
