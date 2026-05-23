@@ -156,10 +156,10 @@ if [[ ! -f "$WORKDIR/packaging/install.sh" ]]; then
   exit 1
 fi
 
-# Linux: cargo builds run as SUDO_USER; workdir must be writable.
-# macOS: primary group is often not the username (e.g. staff) — skip chown; build uses sudo -u.
-if [[ -n "${SUDO_USER:-}" ]] && [[ -d "$WORKDIR" ]] && [[ "$(uname -s)" == "Linux" ]]; then
-  chown -R "$SUDO_USER:$SUDO_USER" "$WORKDIR"
+# Cargo builds run as SUDO_USER; workdir must be writable.
+# Use owner-only chown (no group) — macOS groups are often "staff", not the username.
+if [[ -n "${SUDO_USER:-}" ]] && [[ -d "$WORKDIR" ]]; then
+  chown -R "$SUDO_USER" "$WORKDIR"
 fi
 
 export REPO_ROOT="$WORKDIR"

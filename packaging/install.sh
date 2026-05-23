@@ -497,7 +497,7 @@ setup_vnc_password() {
   local desktop_user="${SUDO_USER:-}"
   if [[ -f /etc/urc/vncpasswd ]]; then
     if [[ -n "$desktop_user" ]]; then
-      chown "$desktop_user:$desktop_user" /etc/urc/vncpasswd 2>/dev/null || true
+      chown "$desktop_user" /etc/urc/vncpasswd 2>/dev/null || true
       chmod 600 /etc/urc/vncpasswd
     fi
     return
@@ -516,7 +516,7 @@ setup_vnc_password() {
     chmod 600 /etc/urc/vncpasswd
     local desktop_user="${SUDO_USER:-}"
     if [[ -n "$desktop_user" ]]; then
-      chown "$desktop_user:$desktop_user" /etc/urc/vncpasswd
+      chown "$desktop_user" /etc/urc/vncpasswd
     fi
     export URC_VNC_PASSWORD_PLAIN="$vnc_pass"
   else

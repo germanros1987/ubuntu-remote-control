@@ -27,5 +27,5 @@ if [[ -z "$desktop_user" ]] || ! id "$desktop_user" &>/dev/null; then
   exit 0
 fi
 
-chown "$desktop_user:$desktop_user" /etc/urc/vncpasswd
+chown "$desktop_user" /etc/urc/vncpasswd
 chmod 600 /etc/urc/vncpasswd
