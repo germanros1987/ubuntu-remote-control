@@ -14,6 +14,7 @@ const listEl    = $('files-list');
 const cwdEl     = $('cwd');
 const errEl     = $('files-error');
 const uploadIn  = $('upload-input');
+const uploadDir = $('upload-folder-input');
 const uploadZ   = $('upload-zone');
 
 function setStatus(msg, cls) {
@@ -237,7 +238,9 @@ async function listDir(path) {
   if (!r.ok) { showError(`List failed: ${r.status}`); return; }
   const entries = await r.json();
   cwd = path;
-  cwdEl.textContent = '/' + (path || '');
+  // The agent's files_root maps to "/" in the URL space; show /home + cwd so
+  // the user knows which absolute path their uploads will land in.
+  cwdEl.textContent = '/home' + (path ? '/' + path : '');
   renderList(entries);
 }
 
@@ -248,22 +251,25 @@ function renderList(entries) {
     listEl.appendChild(up);
   }
   for (const e of entries) {
-    const click = e.is_dir
-      ? () => listDir(cwd ? `${cwd}/${e.name}` : e.name)
-      : null;
+    const fullPath = cwd ? `${cwd}/${e.name}` : e.name;
+    const click = e.is_dir ? () => listDir(fullPath) : null;
     const r = row(e.name, e.is_dir, click);
-    if (!e.is_dir) {
-      const dl = document.createElement('a');
+    const dl = document.createElement('a');
+    dl.className = 'download';
+    if (e.is_dir) {
+      dl.textContent = '↓zip';
+      dl.href = `/api/download-zip/${encodeURI(fullPath)}`;
+      dl.title = 'Download folder as .zip';
+    } else {
       dl.textContent = '↓';
-      dl.className = 'download';
-      dl.href = `/api/download/${encodeURI(cwd ? `${cwd}/${e.name}` : e.name)}`;
+      dl.href = `/api/download/${encodeURI(fullPath)}`;
       dl.download = e.name;
-      r.appendChild(dl);
       const sz = document.createElement('span');
       sz.className = 'size';
       sz.textContent = humanSize(e.size);
       r.appendChild(sz);
     }
+    r.appendChild(dl);
     listEl.appendChild(r);
   }
 }
@@ -291,14 +297,19 @@ function humanSize(n) {
   return `${n.toFixed(i === 0 ? 0 : 1)}${units[i]}`;
 }
 
-async function uploadFile(file) {
-  const dest = (cwd ? `${cwd}/` : '') + file.name;
+// Uploads `file` to the remote. `relPath` lets folder uploads preserve their
+// directory structure: e.g. a folder "proj" with "src/main.rs" inside is
+// uploaded with relPath="proj/src/main.rs", and the server's `create_dir_all`
+// builds the parents on the remote.
+async function uploadFile(file, relPath) {
+  const subpath = relPath || file.name;
+  const dest = (cwd ? `${cwd}/` : '') + subpath;
   const form = new FormData();
   form.append('file', file, file.name);
 
   const progress = $('upload-progress');
   progress.hidden = false;
-  progress.textContent = `Uploading ${file.name}… 0%`;
+  progress.textContent = `Uploading ${subpath}… 0%`;
   showError('');
 
   await new Promise((resolve) => {
@@ -307,42 +318,99 @@ async function uploadFile(file) {
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) {
         const pct = ((e.loaded / e.total) * 100).toFixed(0);
-        progress.textContent = `Uploading ${file.name}… ${pct}% (${humanSize(e.loaded)}/${humanSize(e.total)})`;
+        progress.textContent = `Uploading ${subpath}… ${pct}% (${humanSize(e.loaded)}/${humanSize(e.total)})`;
       }
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        progress.textContent = `Uploaded ${file.name}`;
+        progress.textContent = `Uploaded ${subpath}`;
         setTimeout(() => { progress.hidden = true; }, 1500);
       } else {
-        showError(`Upload ${file.name} failed: HTTP ${xhr.status} ${xhr.responseText || ''}`);
+        showError(`Upload ${subpath} failed: HTTP ${xhr.status} ${xhr.responseText || ''}`);
         progress.hidden = true;
       }
       resolve();
     };
     xhr.onerror = () => {
-      showError(`Upload ${file.name} failed: network error`);
+      showError(`Upload ${subpath} failed: network error`);
       progress.hidden = true;
       resolve();
     };
     xhr.send(form);
   });
+}
 
+async function uploadFileList(fileList) {
+  for (const f of fileList) {
+    // `webkitRelativePath` is non-empty for folder uploads (input[webkitdirectory]
+    // or drag-dropped directories) and carries the path inside the chosen root.
+    await uploadFile(f, f.webkitRelativePath || f.name);
+  }
   await listDir(cwd);
 }
 
 uploadIn.addEventListener('change', async (e) => {
-  for (const f of e.target.files) await uploadFile(f);
+  await uploadFileList(e.target.files);
   uploadIn.value = '';
+});
+
+uploadDir.addEventListener('change', async (e) => {
+  await uploadFileList(e.target.files);
+  uploadDir.value = '';
 });
 
 ['dragenter', 'dragover'].forEach(ev =>
   uploadZ.addEventListener(ev, (e) => { e.preventDefault(); uploadZ.classList.add('drag'); }));
 ['dragleave', 'drop'].forEach(ev =>
   uploadZ.addEventListener(ev, (e) => { e.preventDefault(); uploadZ.classList.remove('drag'); }));
+
 uploadZ.addEventListener('drop', async (e) => {
-  for (const f of e.dataTransfer.files) await uploadFile(f);
+  // Prefer the DataTransferItemList: it can walk dropped folders via
+  // webkitGetAsEntry, which `dataTransfer.files` cannot. Fall back to the
+  // flat file list when entries aren't available.
+  const items = e.dataTransfer.items;
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    const collected = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+      if (entry) await walkEntry(entry, '', collected);
+    }
+    await uploadFileList(collected);
+  } else {
+    await uploadFileList(e.dataTransfer.files);
+  }
 });
+
+// Recursively walk a FileSystemEntry (from drag-drop) and push File objects
+// with a synthetic `webkitRelativePath` so uploadFile preserves the layout.
+function walkEntry(entry, prefix, out) {
+  return new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file((file) => {
+        try {
+          Object.defineProperty(file, 'webkitRelativePath', {
+            value: prefix + entry.name,
+            configurable: true,
+          });
+        } catch (_) { /* property already set in some browsers */ }
+        out.push(file);
+        resolve();
+      }, () => resolve());
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const read = () => {
+        reader.readEntries(async (entries) => {
+          if (!entries.length) return resolve();
+          for (const e of entries) await walkEntry(e, prefix + entry.name + '/', out);
+          read();
+        }, () => resolve());
+      };
+      read();
+    } else {
+      resolve();
+    }
+  });
+}
 
 $('toggle-files').onclick = () => {
   panelEl.hidden = !panelEl.hidden;

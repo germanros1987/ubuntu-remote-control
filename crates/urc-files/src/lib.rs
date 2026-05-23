@@ -5,19 +5,22 @@
 
 use anyhow::Result;
 use axum::{
+    body::Body,
     extract::{Multipart, Path, State},
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
+use std::io::Cursor;
 use std::path::{Component, Path as StdPath, PathBuf};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
+use walkdir::WalkDir;
 
 #[derive(Clone)]
 struct FilesState {
@@ -38,6 +41,8 @@ pub fn files_router(root: PathBuf) -> Router {
         .route("/list", get(list_root))
         .route("/list/{*path}", get(list_dir))
         .route("/download/{*path}", get(download_file))
+        .route("/download-zip", get(download_zip_root))
+        .route("/download-zip/{*path}", get(download_zip))
         .route("/upload/{*path}", post(upload_file))
         .route("/health", get(|| async { "ok" }))
         .layer(TraceLayer::new_for_http())
@@ -134,6 +139,84 @@ async fn download_file(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(data)
+}
+
+async fn download_zip_root(
+    State(state): State<Arc<FilesState>>,
+) -> Result<Response, StatusCode> {
+    build_zip_response(&state.root, "remote-root".to_string()).await
+}
+
+async fn download_zip(
+    State(state): State<Arc<FilesState>>,
+    Path(path): Path<String>,
+) -> Result<Response, StatusCode> {
+    let dir = safe_path(&state.root, &path)?;
+    if !dir.is_dir() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "folder".to_string());
+    build_zip_response(&dir, name).await
+}
+
+/// Build a zip archive of `dir` on a blocking thread (the zip crate is sync),
+/// then hand the bytes back as a downloadable response. Keep this in memory
+/// for simplicity — streaming would require a custom AsyncWrite bridge.
+async fn build_zip_response(dir: &StdPath, archive_name: String) -> Result<Response, StatusCode> {
+    let dir = dir.to_path_buf();
+    let bytes = tokio::task::spawn_blocking(move || zip_dir(&dir))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|e| {
+            warn!(error = %e, "zip build failed");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    let filename = format!("{archive_name}.zip");
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/zip"),
+            (
+                header::CONTENT_DISPOSITION,
+                Box::leak(format!("attachment; filename=\"{filename}\"").into_boxed_str()),
+            ),
+        ],
+        Body::from(bytes),
+    )
+        .into_response())
+}
+
+fn zip_dir(root: &StdPath) -> anyhow::Result<Vec<u8>> {
+    use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+    let mut buf = Cursor::new(Vec::new());
+    let mut zw = ZipWriter::new(&mut buf);
+    let opts: SimpleFileOptions =
+        SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    for entry in WalkDir::new(root).follow_links(false) {
+        let entry = entry?;
+        let path = entry.path();
+        let rel = path.strip_prefix(root)?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if entry.file_type().is_dir() {
+            zw.add_directory(format!("{rel_str}/"), opts)?;
+        } else if entry.file_type().is_file() {
+            zw.start_file(rel_str, opts)?;
+            let mut f = std::fs::File::open(path)?;
+            std::io::copy(&mut f, &mut zw)?;
+        } else {
+            // Skip symlinks / sockets / devices to keep archives portable.
+            continue;
+        }
+    }
+    let _ = zw.finish()?;
+    Ok(buf.into_inner())
 }
 
 async fn upload_file(

@@ -14,3 +14,5 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tower-http = { version = "0.6", features = ["cors", "trace"] }
+walkdir = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }

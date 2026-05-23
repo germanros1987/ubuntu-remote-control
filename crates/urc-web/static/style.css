@@ -37,9 +37,28 @@ button:hover { background: #3a3a3d; }
   background: #18181b;
   display: flex; flex-direction: column;
 }
-.panel-header { padding: 10px 12px 6px; border-bottom: 1px solid #2a2a2d; }
-.panel-header h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #888; }
-.cwd { display: block; margin-top: 2px; font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; color: #ccc; word-break: break-all; }
+.panel-header { padding: 10px 12px 8px; border-bottom: 1px solid #2a2a2d; background: #15151a; }
+.panel-header h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #888;
+}
+.cwd-row {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cwd-label { font-size: 11px; color: #888; }
+.cwd {
+  display: block;
+  padding: 4px 6px;
+  background: #0f0f12;
+  border: 1px solid #2a2a2d; border-radius: 4px;
+  font-family: ui-monospace, "SF Mono", monospace; font-size: 12px;
+  color: #6aa8e0; word-break: break-all;
+}
+
+.upload-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 .upload {
   margin: 10px 12px;

@@ -13,7 +13,7 @@
     <span class="spacer"></span>
     <button id="paste-to-remote" type="button" title="Paste your local clipboard into the remote desktop">📋 Paste</button>
     <button id="copy-from-remote" type="button" title="Copy the remote's last-sent clipboard into your local clipboard" hidden>📥 Copy</button>
-    <button id="toggle-files" type="button">Files</button>
+    <button id="toggle-files" type="button">Remote files</button>
     <button id="toggle-fullscreen" type="button">⛶</button>
     <button id="disconnect" type="button">Disconnect</button>
   </header>
@@ -25,14 +25,21 @@
 
     <aside id="files-panel" hidden>
       <div class="panel-header">
-        <h2>Files</h2>
-        <span id="cwd" class="cwd">/</span>
+        <h2>Remote files</h2>
+        <div class="cwd-row">
+          <span class="cwd-label">Uploads land in:</span>
+          <code id="cwd" class="cwd">/</code>
+        </div>
       </div>
 
       <div id="upload-zone" class="upload">
-        <p>Drop files here to upload, or</p>
-        <label class="btn" for="upload-input">Choose files…</label>
-        <input type="file" id="upload-input" multiple class="visually-hidden">
+        <p>Drop files or folders here, or</p>
+        <div class="upload-actions">
+          <label class="btn" for="upload-input">📄 Upload files</label>
+          <input type="file" id="upload-input" multiple class="visually-hidden">
+          <label class="btn" for="upload-folder-input">📁 Upload folder</label>
+          <input type="file" id="upload-folder-input" webkitdirectory directory multiple class="visually-hidden">
+        </div>
         <div id="upload-progress" class="upload-progress" hidden></div>
       </div>
 
