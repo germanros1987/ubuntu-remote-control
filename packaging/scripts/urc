@@ -35,13 +35,36 @@ fi
 case "$cmd" in
   connect|c)
     load_client_env
-    host="${1:-${URC_DEFAULT_HOST:-}}"
+    # Strip leading flags off so we can find the host name.
+    args=()
+    host=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --bg|--no-open) args+=("$1"); shift ;;
+        --local-port) args+=("$1" "$2"); shift 2 ;;
+        --*) args+=("$1"); shift ;;
+        *) host="$1"; shift; break ;;
+      esac
+    done
+    host="${host:-${URC_DEFAULT_HOST:-}}"
     if [[ -z "$host" ]]; then
-      echo "Usage: urc connect NAME" >&2
+      echo "Usage: urc connect [--bg] NAME" >&2
       echo "Run: urc hosts" >&2
       exit 1
     fi
-    urc_client connect "$host"
+    urc_client connect "$host" "${args[@]+"${args[@]}"}" "$@"
+    ;;
+  sessions|ls)
+    load_client_env
+    urc_client sessions
+    ;;
+  kill|stop)
+    target="${1:-}"
+    if [[ -z "$target" ]]; then
+      echo "Usage: urc kill HOST|PID" >&2
+      exit 1
+    fi
+    urc_client kill "$target"
     ;;
   status|health)
     if [[ $# -gt 0 ]]; then
@@ -58,10 +81,13 @@ case "$cmd" in
     cat <<'EOF'
 urc — Ubuntu Remote Control (Tailscale)
 
-  urc hosts             List PCs on your tailnet
-  urc connect NAME      Open remote desktop
-  urc status            Agent health (on remote PC)
-  urc health            Exit 0 if agent healthy
+  urc hosts                  List PCs on your tailnet
+  urc connect NAME           Open remote desktop (foreground; Ctrl+C disconnects)
+  urc connect NAME --bg      Start tunnel in background; return immediately
+  urc sessions               List background tunnels
+  urc kill NAME|PID          Stop a background tunnel
+  urc status                 Agent health (on remote PC)
+  urc health                 Exit 0 if agent healthy
 
 Setup:
   Ubuntu PC:   curl install | sudo bash  → choose 1
