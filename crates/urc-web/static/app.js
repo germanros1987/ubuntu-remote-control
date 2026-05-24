@@ -22,6 +22,10 @@ function setStatus(msg, cls) {
   statusEl.className = 'status ' + (cls || '');
 }
 
+function connectedLabel() {
+  return remoteHostname ? `connected (${remoteHostname})` : 'connected';
+}
+
 // --- VNC ---------------------------------------------------------------
 
 function vncURL() {
@@ -65,7 +69,7 @@ function startVNC() {
 
   rfb.addEventListener('connect', () => {
     reconnectAttempt = 0;
-    setStatus('connected', 'ok');
+    setStatus(remoteHostname ? `connected (${remoteHostname})` : 'connected', 'ok');
   });
   rfb.addEventListener('disconnect', (e) => {
     const clean = e.detail && e.detail.clean;
@@ -88,7 +92,7 @@ function startVNC() {
       navigator.clipboard.writeText(text).then(
         () => {
           setStatus('remote clipboard copied locally', 'ok');
-          setTimeout(() => setStatus('connected', 'ok'), 2000);
+          setTimeout(() => setStatus(connectedLabel(), 'ok'), 2000);
           $('copy-from-remote').hidden = true;
         },
         () => {
@@ -140,11 +144,11 @@ async function pushClipboardToRemote(text) {
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     setStatus('clipboard sent to remote (Ctrl+V to paste there)', 'ok');
-    setTimeout(() => setStatus('connected', 'ok'), 2500);
+    setTimeout(() => setStatus(connectedLabel(), 'ok'), 2500);
   } catch (e) {
     if (rfb) rfb.clipboardPasteFrom(text);
     setStatus('clipboard pushed via VNC fallback', 'ok');
-    setTimeout(() => setStatus('connected', 'ok'), 2500);
+    setTimeout(() => setStatus(connectedLabel(), 'ok'), 2500);
   }
 }
 
@@ -156,7 +160,7 @@ $('copy-from-remote').onclick = async () => {
     await navigator.clipboard.writeText(lastRemoteClipboard);
     $('copy-from-remote').hidden = true;
     setStatus('remote clipboard copied locally', 'ok');
-    setTimeout(() => setStatus('connected', 'ok'), 2000);
+    setTimeout(() => setStatus(connectedLabel(), 'ok'), 2000);
   } catch (_) {
     setStatus('clipboard write blocked — grant permission in browser settings', 'err');
   }
@@ -180,7 +184,7 @@ async function pollRemoteClipboard() {
       navigator.clipboard.writeText(text).then(
         () => {
           setStatus('remote clipboard copied locally', 'ok');
-          setTimeout(() => setStatus('connected', 'ok'), 2000);
+          setTimeout(() => setStatus(connectedLabel(), 'ok'), 2000);
           $('copy-from-remote').hidden = true;
         },
         () => {
@@ -207,6 +211,22 @@ $('disconnect').onclick = () => {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (rfb) rfb.disconnect();
 };
+
+function setTopbar(visible) {
+  document.body.classList.toggle('topbar-hidden', !visible);
+  $('show-topbar').hidden = visible;
+}
+$('hide-topbar').onclick = () => setTopbar(false);
+$('show-topbar').onclick = () => setTopbar(true);
+
+// Fetch the remote hostname once so status text can read "connected (sa-grs)".
+let remoteHostname = '';
+fetch('/api/host').then(r => r.ok ? r.json() : null).then(j => {
+  if (j && j.hostname) {
+    remoteHostname = j.hostname;
+    if (statusEl.textContent === 'connected') setStatus(connectedLabel(), 'ok');
+  }
+}).catch(() => {});
 
 // Page becoming visible (laptop wake, tab refocus) is a good moment to retry
 // immediately instead of waiting out the backoff.

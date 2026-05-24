@@ -34,6 +34,30 @@ struct ListEntry {
     size: u64,
 }
 
+#[derive(Serialize)]
+struct HostInfo {
+    hostname: String,
+}
+
+async fn host_info() -> Json<HostInfo> {
+    // tokio::process is heavier than reading /etc/hostname; the file path is the
+    // canonical short hostname on Linux and stable across init systems.
+    let hostname = std::fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::process::Command::new("hostname")
+                .arg("-s")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_else(|| "remote".to_string());
+    Json(HostInfo { hostname })
+}
+
 /// Build the file-API router rooted at `root`. Callers mount this under any prefix.
 pub fn files_router(root: PathBuf) -> Router {
     let state = Arc::new(FilesState { root });
@@ -45,6 +69,7 @@ pub fn files_router(root: PathBuf) -> Router {
         .route("/download-zip/{*path}", get(download_zip))
         .route("/upload/{*path}", post(upload_file))
         .route("/health", get(|| async { "ok" }))
+        .route("/host", get(host_info))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

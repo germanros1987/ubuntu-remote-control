@@ -26,6 +26,18 @@ button[aria-pressed="true"] {
 #layout {
   display: flex; height: calc(100% - 40px);
 }
+body.topbar-hidden #topbar { display: none; }
+body.topbar-hidden #layout { height: 100%; }
+
+.show-topbar {
+  position: fixed; top: 4px; right: 4px;
+  z-index: 1000;
+  padding: 2px 6px;
+  background: rgba(28, 28, 31, 0.7); color: #aaa;
+  border: 1px solid #2a2a2d; border-radius: 4px;
+  font-size: 12px; line-height: 1;
+}
+.show-topbar:hover { background: #2a2a2d; color: #fff; }
 #screen-wrap {
   flex: 1; position: relative; background: #000;
   overflow: hidden;
