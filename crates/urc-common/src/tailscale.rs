@@ -143,6 +143,18 @@ pub fn self_ipv4(json: &Value) -> Option<String> {
     peer_ipv4(json.get("Self")?)
 }
 
+/// MagicDNS name of this machine, with any trailing dot stripped. The `Self`
+/// object carries `DNSName` just like peers do (see `peer_from_value`).
+pub fn self_dns_name(json: &Value) -> Option<String> {
+    let dns = json
+        .get("Self")?
+        .get("DNSName")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim_end_matches('.').to_string())
+        .filter(|s| !s.is_empty())?;
+    Some(dns)
+}
+
 /// Local Tailscale daemon state — one of NoState / NeedsLogin / NeedsMachineAuth /
 /// Stopped / Starting / Running. Returns the raw string so callers can produce a
 /// targeted error message; missing field is treated as Unknown.

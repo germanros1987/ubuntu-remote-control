@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">URC</string>
+    <string name="hosts_title">Remote PCs</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="add_manually">Add manually</string>
+    <string name="no_hosts">No saved PCs yet.\nScan the QR shown by <b>urc share</b> on your PC, or add one manually.</string>
+    <string name="connect">Connect</string>
+    <string name="cancel">Cancel</string>
+    <string name="add">Add</string>
+    <string name="delete">Delete</string>
+    <string name="field_name">Name (optional)</string>
+    <string name="field_host">Tailscale IP (100.x.y.z)</string>
+    <string name="field_magicdns">MagicDNS name (optional)</string>
+    <string name="field_port">Port</string>
+    <string name="connecting">Connecting…</string>
+    <string name="notif_channel_name">Active connection</string>
+    <string name="notif_connected">Connected to %1$s</string>
+    <string name="notif_text">Loopback tunnel active. Tap to return.</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="err_not_cgnat">Host %1$s is not a Tailscale (100.64.0.0/10) address. Refusing to connect.</string>
+    <string name="err_not_ip_literal">Enter a numeric Tailscale IP like 100.x.y.z (a hostname/MagicDNS name is not allowed here).</string>
+    <string name="err_unreachable">Could not reach %1$s. Is Tailscale on and the PC sharing?</string>
+    <string name="tailscale_needed">Tailscale required</string>
+    <string name="tailscale_needed_body">This PC is reachable only over Tailscale. Install/enable Tailscale, then retry.</string>
+    <string name="open_tailscale">Get Tailscale</string>
+    <string name="retry">I\'ve enabled it — retry</string>
+</resources>

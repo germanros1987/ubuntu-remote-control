@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.UrcAndroid" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/black</item>
+    </style>
+
+    <!-- Fullscreen theme for the WebView host so remote desktop fills the screen. -->
+    <style name="Theme.UrcAndroid.Fullscreen" parent="Theme.UrcAndroid">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>

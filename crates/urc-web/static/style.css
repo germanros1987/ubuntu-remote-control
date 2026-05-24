@@ -132,3 +132,79 @@ body.topbar-hidden #layout { height: 100%; }
   background: #3a1e1e; color: #d98a8a; border-radius: 4px;
   font-size: 12px;
 }
+
+/* =========================================================
+   MOBILE / TOUCH ADAPTATIONS
+   - >=768px: no change (desktop unchanged)
+   - 480–767px: files panel becomes a slide-in drawer,
+                topbar labels still visible
+   - <=479px: topbar collapses to icon-only (.btn-label hidden)
+   - coarse pointer: 44px tap targets, touch-bar visible
+   ========================================================= */
+
+/* --- backdrop for drawer close-on-tap-outside ------------ */
+#panel-backdrop {
+  display: none; /* shown via JS removing [hidden] + this rule */
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 199;
+}
+#panel-backdrop:not([hidden]) { display: block; }
+
+/* --- touch-bar (floating right-click / drag / kbd) -------- */
+#touch-bar {
+  position: fixed; bottom: 16px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; gap: 8px;
+  background: rgba(28,28,31,0.92);
+  border: 1px solid #3a3a3d; border-radius: 24px;
+  padding: 6px 12px;
+  z-index: 300;
+  backdrop-filter: blur(4px);
+}
+#touch-bar button {
+  min-width: 52px; min-height: 44px;
+  padding: 0 12px;
+  border-radius: 18px;
+  font-size: 14px;
+}
+#touch-bar button.active {
+  background: #2a4a6d; border-color: #3a6aa8; color: #fff;
+}
+
+/* --- hidden keyboard shim (zero-size, off-screen) --------- */
+#keyboard-input {
+  position: fixed; top: -200px; left: -200px;
+  width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+  resize: none; border: none; padding: 0;
+}
+
+/* --- 480–767px: drawer overlay for files panel ------------ */
+@media (max-width: 767px) {
+  #files-panel:not([hidden]) {
+    position: fixed; top: 0; right: 0;
+    width: min(320px, 88vw); height: 100%;
+    z-index: 200;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.6);
+  }
+  /* screen-wrap fills 100% width (panel floats over it) */
+  #screen-wrap { width: 100%; }
+}
+
+/* --- <=479px: icon-only topbar ----------------------------- */
+@media (max-width: 479px) {
+  .btn-label { display: none; }
+  #topbar { gap: 6px; padding: 4px 8px; }
+}
+
+/* --- coarse pointer (touch screens): 44px tap targets ------ */
+@media (pointer: coarse) {
+  button { min-height: 44px; min-width: 44px; padding: 0 12px; }
+  .close-btn { min-height: 44px; min-width: 44px; font-size: 22px; }
+  .btn { min-height: 44px; padding: 0 14px; line-height: 44px; }
+  .download { min-height: 44px; padding: 0 10px; line-height: 44px; }
+  .row { padding: 8px 12px; }
+  /* show touch-bar on coarse-pointer devices (JS also gates this) */
+  #touch-bar:not([hidden]) { display: flex; }
+}
