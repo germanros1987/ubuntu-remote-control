@@ -1,5 +1,9 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+/* Honor `hidden` even on elements that have an explicit `display:` rule.
+   Without this `#files-panel { display: flex }` and the upload inputs win
+   over the user-agent `[hidden]` rule and stay on screen. */
+[hidden] { display: none !important; }
 
 #topbar {
   display: flex; align-items: center; gap: 10px;
