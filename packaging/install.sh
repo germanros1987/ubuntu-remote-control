@@ -474,9 +474,9 @@ build_and_install_binaries() {
   install_build_deps
   quiet_step "Building URC (first install: 1-3 min)" \
     linux_run_cargo "cd '$REPO_ROOT' && source \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --quiet --release"
-  install_file 755 target/release/urc-agent "$INSTALL_PREFIX/bin/urc-agent"
-  install_file 755 target/release/urc-client "$INSTALL_PREFIX/bin/urc-client"
-  install_file 755 target/release/urc-coordinator "$INSTALL_PREFIX/bin/urc-coordinator"
+  install_file 755 "$REPO_ROOT/target/release/urc-agent" "$INSTALL_PREFIX/bin/urc-agent"
+  install_file 755 "$REPO_ROOT/target/release/urc-client" "$INSTALL_PREFIX/bin/urc-client"
+  install_file 755 "$REPO_ROOT/target/release/urc-coordinator" "$INSTALL_PREFIX/bin/urc-coordinator"
   install_file 755 "$REPO_ROOT/packaging/scripts/urc" "$INSTALL_PREFIX/bin/urc"
 }
 
