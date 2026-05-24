@@ -25,7 +25,10 @@
 
     <aside id="files-panel" hidden>
       <div class="panel-header">
-        <h2>Remote files</h2>
+        <div class="panel-titlebar">
+          <h2>Remote files</h2>
+          <button id="close-files" type="button" class="close-btn" aria-label="Hide files panel" title="Hide (or press F)">×</button>
+        </div>
         <div class="cwd-row">
           <span class="cwd-label">Uploads land in:</span>
           <code id="cwd" class="cwd">/</code>

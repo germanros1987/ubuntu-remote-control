@@ -19,6 +19,9 @@ button {
   padding: 4px 10px; cursor: pointer; font-size: 13px;
 }
 button:hover { background: #3a3a3d; }
+button[aria-pressed="true"] {
+  background: #2a4a6d; border-color: #3a6aa8; color: #fff;
+}
 
 #layout {
   display: flex; height: calc(100% - 40px);
@@ -38,13 +41,24 @@ button:hover { background: #3a3a3d; }
   display: flex; flex-direction: column;
 }
 .panel-header { padding: 10px 12px 8px; border-bottom: 1px solid #2a2a2d; background: #15151a; }
+.panel-titlebar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
 .panel-header h2 {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   color: #888;
 }
+.close-btn {
+  padding: 0 6px;
+  background: transparent; border: none; color: #888;
+  font-size: 18px; line-height: 1;
+  cursor: pointer;
+}
+.close-btn:hover { color: #ddd; background: #2a2a2d; border-radius: 4px; }
 .cwd-row {
   display: flex; flex-direction: column; gap: 2px;
 }

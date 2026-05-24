@@ -412,10 +412,14 @@ function walkEntry(entry, prefix, out) {
   });
 }
 
-$('toggle-files').onclick = () => {
-  panelEl.hidden = !panelEl.hidden;
-  if (!panelEl.hidden) listDir(cwd);
-};
+function setPanelOpen(open) {
+  panelEl.hidden = !open;
+  $('toggle-files').setAttribute('aria-pressed', open ? 'true' : 'false');
+  if (open) listDir(cwd);
+}
+
+$('toggle-files').onclick = () => setPanelOpen(panelEl.hidden);
+$('close-files').onclick = () => setPanelOpen(false);
 
 // --- boot --------------------------------------------------------------
 
