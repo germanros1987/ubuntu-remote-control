@@ -13,6 +13,10 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
+import android.view.ViewGroup
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -33,6 +37,11 @@ class QrScanActivity : AppCompatActivity() {
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private val handled = AtomicBoolean(false)
 
+    /** Baseline hint offset (the 48dp from the layout) the nav-bar inset adds to. */
+    private val baseHintMarginPx by lazy {
+        (48 * resources.displayMetrics.density).toInt()
+    }
+
     private val scanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
@@ -51,6 +60,16 @@ class QrScanActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityQrScanBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Camera preview stays full-bleed; push the bottom hint above the nav bar
+        // (on-screen nav-button phones) so it isn't clipped by system bars.
+        ViewCompat.setOnApplyWindowInsetsListener(binding.hint) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                bottomMargin = bars.bottom + baseHintMarginPx
+            }
+            insets
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED

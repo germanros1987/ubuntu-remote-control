@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The camera preview stays full-bleed (edge-to-edge). The bottom hint is padded
+  off the nav bar via a window-insets listener in QrScanActivity so it never
+  hides under on-screen nav buttons.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -10,6 +15,7 @@
         android:layout_height="match_parent" />
 
     <TextView
+        android:id="@+id/hint"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"

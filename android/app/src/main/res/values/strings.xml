@@ -25,4 +25,16 @@
     <string name="tailscale_needed_body">This PC is reachable only over Tailscale. Install/enable Tailscale, then retry.</string>
     <string name="open_tailscale">Get Tailscale</string>
     <string name="retry">I\'ve enabled it — retry</string>
+
+    <!-- Launch-time onboarding card (HostListActivity). -->
+    <string name="onboard_install_title">Install Tailscale</string>
+    <string name="onboard_install_body">URC reaches your PC over Tailscale. Install the Tailscale app, sign in, then come back here.</string>
+    <string name="onboard_install_action">Install Tailscale</string>
+    <string name="onboard_enable_title">Turn on Tailscale</string>
+    <string name="onboard_enable_body">Tailscale is installed but not connected. Open it and turn the VPN on, then come back here.</string>
+    <string name="onboard_enable_action">Open Tailscale</string>
+    <string name="onboard_pair_title">Pair your PC</string>
+    <string name="onboard_pair_body">On your PC run <b>urc share</b>, then tap Scan QR below to connect.</string>
+    <string name="onboard_pair_action">Scan QR</string>
+    <string name="onboard_dismiss">Dismiss</string>
 </resources>

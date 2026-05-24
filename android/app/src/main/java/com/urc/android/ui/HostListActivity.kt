@@ -1,14 +1,17 @@
 package com.urc.android.ui
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.text.HtmlCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -40,6 +43,14 @@ class HostListActivity : AppCompatActivity() {
         onLongClick = { confirmDelete(it) },
     )
 
+    /** Latest known saved-host count, kept current by the hosts flow collector so
+     *  onResume()'s onboarding check doesn't have to re-query DataStore. */
+    private var hasHosts = false
+
+    /** User dismissed the onboarding card this session — don't re-show until the
+     *  process restarts (state changes still won't resurrect it). */
+    private var onboardDismissed = false
+
     private val scanLauncher =
         registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
             val raw = result.data?.getStringExtra(QrScanActivity.EXTRA_RESULT) ?: return@registerForActivityResult
@@ -59,19 +70,107 @@ class HostListActivity : AppCompatActivity() {
         }
         binding.addButton.setOnClickListener { showAddDialog() }
 
+        binding.onboardDismiss.setOnClickListener {
+            onboardDismissed = true
+            binding.onboardCard.visibility = View.GONE
+        }
+
         lifecycleScope.launch {
             store.hosts.collectLatest { hosts ->
                 adapter.submit(hosts)
+                hasHosts = hosts.isNotEmpty()
                 binding.empty.visibility = if (hosts.isEmpty()) View.VISIBLE else View.GONE
+                refreshOnboarding()
             }
         }
 
         handleDeepLink(intent)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-evaluate when the user returns from installing/enabling Tailscale.
+        refreshOnboarding()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDeepLink(intent)
+    }
+
+    /**
+     * Proactive launch-time onboarding (distinct from the connect-time
+     * [showTailscaleNeeded] dialog). Picks the first unmet prerequisite and shows
+     * a dismissible card. Re-runs from onCreate's flow collector and onResume.
+     *
+     * State priority:
+     *   a) Tailscale not installed   → "Install Tailscale"
+     *   b) Installed, VPN not active → "Turn on Tailscale"
+     *   c) VPN active, no saved hosts → "Pair your PC" (Scan QR)
+     *   d) Has hosts + VPN active     → no card
+     */
+    private fun refreshOnboarding() {
+        if (onboardDismissed) {
+            binding.onboardCard.visibility = View.GONE
+            return
+        }
+
+        val installed = isTailscaleInstalled()
+        val vpnActive = VpnState.hasActiveVpn(this)
+
+        val state: OnboardState? = when {
+            !installed -> OnboardState.Install
+            !vpnActive -> OnboardState.Enable
+            !hasHosts -> OnboardState.Pair
+            else -> null
+        }
+
+        if (state == null) {
+            binding.onboardCard.visibility = View.GONE
+            return
+        }
+
+        binding.onboardTitle.setText(state.titleRes)
+        binding.onboardBody.text =
+            HtmlCompat.fromHtml(getString(state.bodyRes), HtmlCompat.FROM_HTML_MODE_LEGACY)
+        binding.onboardBody.movementMethod = LinkMovementMethod.getInstance()
+        binding.onboardAction.setText(state.actionRes)
+        binding.onboardAction.setOnClickListener {
+            when (state) {
+                OnboardState.Install -> openTailscale()
+                OnboardState.Enable -> launchTailscale()
+                OnboardState.Pair ->
+                    scanLauncher.launch(Intent(this, QrScanActivity::class.java))
+            }
+        }
+        binding.onboardCard.visibility = View.VISIBLE
+    }
+
+    private enum class OnboardState(val titleRes: Int, val bodyRes: Int, val actionRes: Int) {
+        Install(R.string.onboard_install_title, R.string.onboard_install_body, R.string.onboard_install_action),
+        Enable(R.string.onboard_enable_title, R.string.onboard_enable_body, R.string.onboard_enable_action),
+        Pair(R.string.onboard_pair_title, R.string.onboard_pair_body, R.string.onboard_pair_action),
+    }
+
+    /** Reliable install probe — needs the <queries> entry in the manifest so
+     *  API 30+ doesn't throw NameNotFound spuriously. */
+    private fun isTailscaleInstalled(): Boolean =
+        try {
+            packageManager.getPackageInfo(TAILSCALE_PKG, 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        }
+
+    /** Open the installed Tailscale app so the user can turn the VPN on; fall
+     *  back to its store page if the launch intent is unexpectedly null. */
+    private fun launchTailscale() {
+        val launch = packageManager.getLaunchIntentForPackage(TAILSCALE_PKG)
+        if (launch != null) {
+            startActivity(launch)
+        } else {
+            openTailscale()
+        }
     }
 
     /** urc:// VIEW intent → save + connect with the same payload the QR uses. */
@@ -138,11 +237,10 @@ class HostListActivity : AppCompatActivity() {
     private fun openTailscale() {
         // Deep-link to the Tailscale app in the Play Store; fall through to a web
         // URL if no store app handles market:// .
-        val pkg = "com.tailscale.ipn"
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")))
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$TAILSCALE_PKG")))
         } catch (e: Exception) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg")))
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$TAILSCALE_PKG")))
         }
     }
 
@@ -209,5 +307,9 @@ class HostListActivity : AppCompatActivity() {
             holder.binding.root.setOnClickListener { onClick(host) }
             holder.binding.root.setOnLongClickListener { onLongClick(host); true }
         }
+    }
+
+    private companion object {
+        const val TAILSCALE_PKG = "com.tailscale.ipn"
     }
 }
