@@ -181,12 +181,18 @@ setup_tailscale() {
       else
         tailscale up --auth-key="$TAILSCALE_AUTH_KEY" --accept-routes
       fi
-    elif ! $NONINTERACTIVE && [[ -r /dev/tty ]]; then
-      echo "Sign in to Tailscale (open the URL below if prompted):" >/dev/tty
+    elif [[ -r /dev/tty ]]; then
+      # Tailscale login is inherently interactive (it prints a URL to open in a
+      # browser), so prompt even under -y/NONINTERACTIVE when a terminal exists.
+      echo "==> Tailscale not logged in — signing you in now." >/dev/tty
+      echo "    Open the URL below in a browser to authorize this machine:" >/dev/tty
       if is_macos && [[ "$ts_user" != "root" ]]; then
         sudo -u "$ts_user" tailscale up </dev/tty >/dev/tty 2>&1 || true
       else
         tailscale up </dev/tty >/dev/tty 2>&1 || true
+      fi
+      if ! tailscale status --json 2>/dev/null | grep -qE '"BackendState":"Running"|"State":10'; then
+        echo "Tailscale login not completed. Re-run later with: sudo tailscale up" >/dev/tty
       fi
     else
       echo "Tailscale installed. Finish login with: tailscale up"
