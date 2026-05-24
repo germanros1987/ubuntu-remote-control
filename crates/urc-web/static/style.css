@@ -1,5 +1,6 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body { display: flex; flex-direction: column; }
 /* Honor `hidden` even on elements that have an explicit `display:` rule.
    Without this `#files-panel { display: flex }` and the upload inputs win
    over the user-agent `[hidden]` rule and stay on screen. */
@@ -7,10 +8,19 @@ html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px 
 
 #topbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 12px;
+  /* safe-area-inset-top: clears Android status bar / notch.
+     max() ensures desktop (inset=0) keeps the original 6px. */
+  padding-top: max(6px, env(safe-area-inset-top));
+  padding-bottom: 6px;
+  /* safe-area-inset-left/right: clears notch on landscape.
+     max() ensures desktop keeps the original 12px. */
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
   background: #1c1c1f;
   border-bottom: 1px solid #2a2a2d;
-  height: 40px;
+  /* height is driven by padding + content; #layout uses flex:1 to fill
+     the rest, so the bar can grow with safe-area insets without any JS. */
+  min-height: 40px;
 }
 .brand { font-weight: 700; letter-spacing: 0.5px; color: #fff; }
 .status { padding: 2px 8px; border-radius: 4px; background: #2a2a2d; color: #aaa; font-size: 12px; }
@@ -28,13 +38,23 @@ button[aria-pressed="true"] {
 }
 
 #layout {
-  display: flex; height: calc(100% - 40px);
+  display: flex; flex: 1;
+  /* flex:1 on body-as-flex-column automatically fills all space
+     below the topbar — no hardcoded 40px subtraction needed.
+     This stays correct when topbar grows due to safe-area insets. */
+  min-height: 0; /* prevent flex overflow on some browsers */
 }
 body.topbar-hidden #topbar { display: none; }
-body.topbar-hidden #layout { height: 100%; }
+/* When topbar is hidden, #layout already fills the full remaining space
+   via flex:1, so no explicit height:100% override needed. */
 
 .show-topbar {
-  position: fixed; top: 4px; right: 4px;
+  position: fixed;
+  /* safe-area-inset-top: pill clears Android status bar.
+     max() ensures desktop keeps the original 4px offset. */
+  top: max(4px, env(safe-area-inset-top));
+  /* safe-area-inset-right: clears notch / gesture area on landscape. */
+  right: max(4px, env(safe-area-inset-right));
   z-index: 1000;
   padding: 2px 6px;
   background: rgba(28, 28, 31, 0.7); color: #aaa;
@@ -153,12 +173,20 @@ body.topbar-hidden #layout { height: 100%; }
 
 /* --- touch-bar (floating right-click / drag / kbd) -------- */
 #touch-bar {
-  position: fixed; bottom: 16px; left: 50%;
+  position: fixed;
+  /* safe-area-inset-bottom: clears Android on-screen nav bar.
+     calc() with max() alternative — calc is cleaner here since
+     we need addition. env() resolves to 0 on desktop. */
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 50%;
   transform: translateX(-50%);
   display: flex; gap: 8px;
   background: rgba(28,28,31,0.92);
   border: 1px solid #3a3a3d; border-radius: 24px;
-  padding: 6px 12px;
+  /* safe-area-inset-left/right: keeps pill clear of gesture areas
+     when device is in landscape. max() preserves original 12px. */
+  padding: 6px max(12px, env(safe-area-inset-right));
+  padding-left: max(12px, env(safe-area-inset-left));
   z-index: 300;
   backdrop-filter: blur(4px);
 }
@@ -187,6 +215,15 @@ body.topbar-hidden #layout { height: 100%; }
     width: min(320px, 88vw); height: 100%;
     z-index: 200;
     box-shadow: -4px 0 24px rgba(0,0,0,0.6);
+    /* safe-area-inset-top: panel header clears the status bar.
+       env() resolves to 0 on desktop so this is a no-op there. */
+    padding-top: env(safe-area-inset-top);
+    /* safe-area-inset-right: panel right edge clears the notch
+       in landscape (the drawer opens from the right). */
+    padding-right: env(safe-area-inset-right);
+    /* safe-area-inset-bottom: last file rows / upload buttons
+       clear the Android on-screen nav bar. */
+    padding-bottom: env(safe-area-inset-bottom);
   }
   /* screen-wrap fills 100% width (panel floats over it) */
   #screen-wrap { width: 100%; }
@@ -195,7 +232,16 @@ body.topbar-hidden #layout { height: 100%; }
 /* --- <=479px: icon-only topbar ----------------------------- */
 @media (max-width: 479px) {
   .btn-label { display: none; }
-  #topbar { gap: 6px; padding: 4px 8px; }
+  #topbar {
+    gap: 6px;
+    /* Replicate the safe-area-aware padding from the base rule,
+       using narrower fallback px values for this breakpoint.
+       max() keeps desktop (inset=0) at the intended 4px/8px. */
+    padding-top: max(4px, env(safe-area-inset-top));
+    padding-bottom: 4px;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
 }
 
 /* --- coarse pointer (touch screens): 44px tap targets ------ */

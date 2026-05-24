@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      Android 11+ (API 30) package-visibility: without this <queries> entry,
+      PackageManager.getPackageInfo("com.tailscale.ipn", 0) throws
+      NameNotFoundException even when Tailscale IS installed, and
+      launchIntentForPackage() returns null. We probe Tailscale's presence to
+      drive the launch-time onboarding card, so declare it explicitly.
+    -->
+    <queries>
+        <package android:name="com.tailscale.ipn" />
+    </queries>
+
     <!-- Talk to the tailnet peer (over the loopback proxy) and download files. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
