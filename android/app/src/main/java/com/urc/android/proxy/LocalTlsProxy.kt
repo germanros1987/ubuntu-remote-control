@@ -47,9 +47,15 @@ class LocalTlsProxy(
 
         // SECURITY GUARD #2 (non-negotiable): bind the listener to the LOOPBACK
         // address ONLY — never 0.0.0.0. Port 0 = OS-assigned ephemeral port.
-        // Binding to InetAddress.getLoopbackAddress() ensures no other device on
-        // the LAN/Wi-Fi can reach this proxy; only apps on THIS device can.
-        val ss = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        // Loopback-only means no other device on the LAN/Wi-Fi can reach this
+        // proxy; only apps on THIS device can.
+        //
+        // Bind the IPv4 loopback EXPLICITLY (127.0.0.1) instead of
+        // InetAddress.getLoopbackAddress(): on IPv6-enabled devices the latter
+        // can resolve to ::1, so the socket would listen on IPv6 only while the
+        // WebView loads http://127.0.0.1:<port>/ (IPv4) — giving
+        // ERR_CONNECTION_REFUSED. 127.0.0.1 is still loopback-only.
+        val ss = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
         serverSocket = ss
         localPort = ss.localPort
         running.set(true)
