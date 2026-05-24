@@ -15,6 +15,7 @@ async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 hex.workspace = true
+qrcode.workspace = true
 rand.workspace = true
 rcgen.workspace = true
 rustls.workspace = true

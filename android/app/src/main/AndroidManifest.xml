@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Talk to the tailnet peer (over the loopback proxy) and download files. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- QR pairing. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Foreground proxy notification on API 33+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Keep the loopback proxy alive across screen-off / app background. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.UrcAndroid"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="true">
+        <!--
+          usesCleartextTraffic=true is REQUIRED and SAFE here: the WebView only ever
+          loads http://127.0.0.1:<port> (loopback). The on-device proxy upgrades that
+          to TLS before it leaves the device. Plain http on loopback keeps the page a
+          secure context for clipboard? No — http is NOT a secure context by default,
+          BUT 127.0.0.1 is treated as a secure context by Chromium (potentially
+          trustworthy origin), so the clipboard API stays available. We never load
+          https into the WebView (a self-signed cert would break the secure context).
+          A network-security-config (below) restricts cleartext to localhost only.
+        -->
+
+        <activity
+            android:name=".ui.HostListActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- urc:// deep link (from a scanned/tapped pairing URL). Opens straight
+                 into the connect flow with the same payload the QR scanner parses. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="urc" android:host="connect" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop" />
+
+        <activity
+            android:name=".discovery.QrScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <service
+            android:name=".proxy.ProxyService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

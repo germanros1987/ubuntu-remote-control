@@ -11,15 +11,31 @@
     <span class="brand">URC</span>
     <span id="status" class="status">connecting…</span>
     <span class="spacer"></span>
-    <button id="paste-to-remote" type="button" title="Paste your local clipboard into the remote desktop">📋 Paste</button>
-    <button id="copy-from-remote" type="button" title="Copy the remote's last-sent clipboard into your local clipboard" hidden>📥 Copy</button>
-    <button id="toggle-files" type="button">Remote files</button>
+    <button id="paste-to-remote" type="button" title="Paste your local clipboard into the remote desktop">📋<span class="btn-label"> Paste</span></button>
+    <button id="copy-from-remote" type="button" title="Copy the remote's last-sent clipboard into your local clipboard" hidden>📥<span class="btn-label"> Copy</span></button>
+    <button id="toggle-files" type="button">📂<span class="btn-label"> Remote files</span></button>
     <button id="toggle-fullscreen" type="button">⛶</button>
-    <button id="disconnect" type="button">Disconnect</button>
+    <button id="disconnect" type="button" title="Disconnect">✕<span class="btn-label"> Disconnect</span></button>
     <button id="hide-topbar" type="button" title="Hide this bar (click ▼ to bring it back)">▲</button>
   </header>
 
   <button id="show-topbar" type="button" class="show-topbar" hidden title="Show top bar">▼</button>
+
+  <!-- backdrop closes the files drawer on mobile (tap outside) -->
+  <div id="panel-backdrop" hidden></div>
+
+  <!-- floating touch toolbar — visible only on coarse-pointer devices -->
+  <div id="touch-bar" hidden>
+    <button id="tb-right"  type="button" title="Right-click">Right</button>
+    <button id="tb-drag"   type="button" title="Toggle drag-lock">Drag</button>
+    <button id="tb-kbd"    type="button" title="Open keyboard">⌨</button>
+  </div>
+
+  <!-- hidden textarea used solely to summon the Android soft keyboard -->
+  <textarea id="keyboard-input" autocomplete="off" autocorrect="off"
+            autocapitalize="off" spellcheck="false"
+            aria-label="Keyboard input — type here to send keys to remote"
+            ></textarea>
 
   <main id="layout">
     <section id="screen-wrap">

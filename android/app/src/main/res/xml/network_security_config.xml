@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext (http) is permitted ONLY for loopback. Everything the WebView fetches
+  is http://127.0.0.1:<port>; the on-device LocalTlsProxy re-encrypts to the tailnet
+  peer. No cleartext is allowed to any real network destination.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

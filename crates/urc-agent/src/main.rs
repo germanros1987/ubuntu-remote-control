@@ -5,6 +5,7 @@ mod config;
 mod coordinator;
 mod health;
 mod session;
+mod share;
 mod supervisor;
 mod tailscale;
 mod tunnel;
@@ -42,6 +43,8 @@ enum Command {
     Health,
     /// Print JSON status
     Status,
+    /// Print a QR code + urc:// deep link to pair the Android client
+    Share,
 }
 
 fn install_rustls_provider() {
@@ -77,5 +80,6 @@ async fn main() -> Result<()> {
         Command::Run => supervisor::run_supervisor(config).await,
         Command::Health => health::run_health_check(&config).await,
         Command::Status => health::run_status_cmd(&config).await,
+        Command::Share => share::run_share(),
     }
 }

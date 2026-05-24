@@ -77,6 +77,10 @@ case "$cmd" in
     load_client_env
     urc_client hosts
     ;;
+  share)
+    load_client_env
+    exec urc-agent share
+    ;;
   ""|help|-h|--help)
     cat <<'EOF'
 urc — Ubuntu Remote Control (Tailscale)
@@ -88,6 +92,7 @@ urc — Ubuntu Remote Control (Tailscale)
   urc kill NAME|PID          Stop a background tunnel
   urc status                 Agent health (on remote PC)
   urc health                 Exit 0 if agent healthy
+  urc share                  Show a QR code to pair the Android app (on remote PC)
 
 Setup:
   Ubuntu PC:   curl install | sudo bash  → choose 1

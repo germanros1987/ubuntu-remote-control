@@ -432,14 +432,150 @@ function walkEntry(entry, prefix, out) {
   });
 }
 
+const backdropEl = $('panel-backdrop');
+
 function setPanelOpen(open) {
   panelEl.hidden = !open;
+  // On mobile the panel is a drawer overlay — show/hide the backdrop.
+  backdropEl.hidden = !open;
   $('toggle-files').setAttribute('aria-pressed', open ? 'true' : 'false');
   if (open) listDir(cwd);
 }
 
 $('toggle-files').onclick = () => setPanelOpen(panelEl.hidden);
-$('close-files').onclick = () => setPanelOpen(false);
+$('close-files').onclick  = () => setPanelOpen(false);
+backdropEl.addEventListener('click', () => setPanelOpen(false));
+
+// --- Touch / mobile helpers -------------------------------------------
+//
+// Feature-detect coarse pointer once; never shown on desktop.
+// rfb is module-scoped and re-assigned by startVNC(), so handlers must
+// read the variable at event time — never capture it in a closure here.
+
+const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+
+const touchBarEl = $('touch-bar');
+const kbdInputEl = $('keyboard-input');
+
+if (hasCoarsePointer) {
+  // Show the floating touch toolbar.
+  touchBarEl.hidden = false;
+}
+
+// Right-click button — synthesises mousedown+mouseup with button:2 on the
+// noVNC canvas. noVNC binds mouse* (not pointer*) listeners on its internal
+// canvas (rfb.js:584-591); contextmenu is explicitly early-returned by
+// _handleMouse so we omit it. button:2 → bmask=1<<2=4 (RFB right-button).
+$('tb-right').addEventListener('click', () => {
+  const canvas = screenEl.querySelector('canvas');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top  + rect.height / 2;
+  canvas.dispatchEvent(new MouseEvent('mousedown', {
+    bubbles: true, cancelable: true,
+    clientX: cx, clientY: cy, button: 2, buttons: 2,
+  }));
+  canvas.dispatchEvent(new MouseEvent('mouseup', {
+    bubbles: true, cancelable: true,
+    clientX: cx, clientY: cy, button: 2, buttons: 0,
+  }));
+});
+
+// Drag-lock button — toggles a persistent left-button-down on the canvas so
+// the user can drag without holding the finger. noVNC uses mouse* events only
+// (rfb.js:584-586), so we dispatch MouseEvent, not PointerEvent.
+let dragLocked = false;
+let dragOrigin = null;
+
+$('tb-drag').addEventListener('click', () => {
+  const canvas = screenEl.querySelector('canvas');
+  if (!canvas) return;
+  if (!dragLocked) {
+    const rect = canvas.getBoundingClientRect();
+    dragOrigin = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    canvas.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true,
+      clientX: dragOrigin.x, clientY: dragOrigin.y, button: 0, buttons: 1,
+    }));
+    dragLocked = true;
+    $('tb-drag').classList.add('active');
+    $('tb-drag').setAttribute('aria-pressed', 'true');
+    // Forward subsequent touch moves on the canvas to noVNC as mousemove.
+    canvas.addEventListener('touchmove', onDragTouchMove, { passive: false });
+  } else {
+    // Release the drag lock.
+    if (dragOrigin) {
+      const canvas2 = screenEl.querySelector('canvas');
+      if (canvas2) {
+        canvas2.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true, cancelable: true,
+          clientX: dragOrigin.x, clientY: dragOrigin.y, button: 0, buttons: 0,
+        }));
+      }
+    }
+    canvas.removeEventListener('touchmove', onDragTouchMove);
+    dragLocked = false;
+    dragOrigin = null;
+    $('tb-drag').classList.remove('active');
+    $('tb-drag').setAttribute('aria-pressed', 'false');
+  }
+});
+
+function onDragTouchMove(e) {
+  e.preventDefault();
+  const t = e.touches[0];
+  if (!t) return;
+  const canvas = screenEl.querySelector('canvas');
+  if (!canvas) return;
+  canvas.dispatchEvent(new MouseEvent('mousemove', {
+    bubbles: true, cancelable: true,
+    clientX: t.clientX, clientY: t.clientY, button: 0, buttons: 1,
+  }));
+}
+
+// Keyboard button — focuses the hidden textarea to summon soft keyboard.
+$('tb-kbd').addEventListener('click', () => {
+  kbdInputEl.focus();
+  // Ensure it's on screen for iOS which refuses to show keyboard for
+  // elements with zero/tiny bounding box — briefly move it into view.
+  kbdInputEl.style.top  = '50%';
+  kbdInputEl.style.left = '50%';
+  setTimeout(() => {
+    kbdInputEl.style.top  = '-200px';
+    kbdInputEl.style.left = '-200px';
+  }, 300);
+});
+
+// Forward keydown events from the hidden textarea into the VNC session.
+kbdInputEl.addEventListener('keydown', (e) => {
+  if (!rfb) return; // read rfb at event time
+  e.preventDefault();
+  // Map KeyboardEvent.key to X11 keysym via noVNC's KeyTable when available,
+  // otherwise fall back to charCodeAt for printable characters.
+  const KeyTable = window.KeyTable;
+  let keysym = 0;
+  if (KeyTable && KeyTable[e.code]) {
+    keysym = KeyTable[e.code];
+  } else if (e.key && e.key.length === 1) {
+    keysym = e.key.codePointAt(0);
+  }
+  if (keysym) rfb.sendKey(keysym, e.code, true);
+  if (keysym) rfb.sendKey(keysym, e.code, false);
+});
+
+// Forward composed text (e.g. CJK IME) as individual codepoints.
+kbdInputEl.addEventListener('compositionend', (e) => {
+  if (!rfb) return;
+  for (const ch of e.data || '') {
+    const keysym = ch.codePointAt(0);
+    if (keysym) {
+      rfb.sendKey(keysym, null, true);
+      rfb.sendKey(keysym, null, false);
+    }
+  }
+  kbdInputEl.value = '';
+});
 
 // --- boot --------------------------------------------------------------
 
