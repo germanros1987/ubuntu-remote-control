@@ -24,11 +24,19 @@
   <!-- backdrop closes the files drawer on mobile (tap outside) -->
   <div id="panel-backdrop" hidden></div>
 
-  <!-- floating touch toolbar — visible only on coarse-pointer devices -->
-  <div id="touch-bar" hidden>
-    <button id="tb-right"  type="button" title="Right-click">Right</button>
-    <button id="tb-drag"   type="button" title="Toggle drag-lock">Drag</button>
-    <button id="tb-kbd"    type="button" title="Open keyboard">⌨</button>
+  <!-- floating touch tools — visible only on coarse-pointer devices.
+       A persistent FAB handle toggles the expandable tool tray. -->
+  <div id="touch-tools" hidden>
+    <div id="touch-bar" class="collapsed" role="toolbar" aria-label="Touch tools" aria-hidden="true">
+      <button id="tb-right" type="button" title="Right-click">Right</button>
+      <button id="tb-drag"  type="button" title="Toggle drag-lock" aria-pressed="false">Drag</button>
+      <button id="tb-zoom-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+      <button id="tb-fit"   type="button" title="Reset zoom to fit" aria-label="Reset zoom to fit">Fit</button>
+      <button id="tb-zoom-in"  type="button" title="Zoom in" aria-label="Zoom in">+</button>
+      <button id="tb-kbd"   type="button" title="Open keyboard" aria-label="Open keyboard">⌨</button>
+    </div>
+    <button id="tb-fab" type="button" class="tb-fab" aria-expanded="false"
+            aria-controls="touch-bar" title="Show touch tools" aria-label="Show touch tools">⋯</button>
   </div>
 
   <!-- hidden textarea used solely to summon the Android soft keyboard -->
