@@ -171,33 +171,79 @@ body.topbar-hidden #topbar { display: none; }
 }
 #panel-backdrop:not([hidden]) { display: block; }
 
-/* --- touch-bar (floating right-click / drag / kbd) -------- */
-#touch-bar {
+/* --- floating touch tools: FAB handle + expandable tray ---
+   The FAB is a persistent, thumb-reachable circle at the bottom-right
+   (above the nav-bar inset). Tapping it springs the tool tray open;
+   the tray collapses back behind the FAB when dismissed. Only ever
+   shown on coarse-pointer devices (also JS-gated). */
+#touch-tools {
   position: fixed;
-  /* safe-area-inset-bottom: clears Android on-screen nav bar.
-     calc() with max() alternative — calc is cleaner here since
-     we need addition. env() resolves to 0 on desktop. */
+  /* safe-area-inset-bottom: clears Android on-screen nav bar. */
   bottom: calc(16px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex; gap: 8px;
-  background: rgba(28,28,31,0.92);
-  border: 1px solid #3a3a3d; border-radius: 24px;
-  /* safe-area-inset-left/right: keeps pill clear of gesture areas
-     when device is in landscape. max() preserves original 12px. */
-  padding: 6px max(12px, env(safe-area-inset-right));
-  padding-left: max(12px, env(safe-area-inset-left));
+  /* safe-area-inset-right: clears the gesture area in landscape. */
+  right: max(16px, env(safe-area-inset-right));
   z-index: 300;
+  display: flex; align-items: center; gap: 10px;
+}
+
+/* The persistent handle. Matches the dark theme's translucent +
+   blurred material already used by the chrome. */
+.tb-fab {
+  /* override the generic coarse-pointer min-width to stay a circle */
+  width: 52px; min-width: 52px; height: 52px; min-height: 52px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(28,28,31,0.92);
+  border: 1px solid #3a3a3d; color: #ddd;
+  font-size: 22px; line-height: 1;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.45);
   backdrop-filter: blur(4px);
+  flex: none;
+  transition: transform 0.18s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.tb-fab:hover { background: #2a2a2d; }
+.tb-fab[aria-expanded="true"] {
+  background: #2a4a6d; border-color: #3a6aa8; color: #fff;
+  transform: rotate(90deg);
+}
+
+/* The tool tray. Springs out to the left of the FAB. */
+#touch-bar {
+  display: flex; gap: 8px; align-items: center;
+  background: rgba(28,28,31,0.92);
+  border: 1px solid #3a3a3d; border-radius: 26px;
+  padding: 6px 10px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  /* expanded state */
+  transform-origin: right center;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+#touch-bar.collapsed {
+  /* Collapse toward the FAB on the right, then disable interaction. */
+  opacity: 0;
+  transform: scaleX(0.6) translateX(20px);
+  pointer-events: none;
 }
 #touch-bar button {
   min-width: 52px; min-height: 44px;
   padding: 0 12px;
   border-radius: 18px;
   font-size: 14px;
+  flex: none;
 }
-#touch-bar button.active {
+#touch-bar button.active,
+#touch-bar button[aria-pressed="true"] {
   background: #2a4a6d; border-color: #3a6aa8; color: #fff;
+}
+/* −/+ zoom keys are square-ish, Fit is a word */
+#tb-zoom-out, #tb-zoom-in { min-width: 44px; font-size: 20px; }
+
+/* Honor reduced-motion: drop the spring, keep the show/hide. */
+@media (prefers-reduced-motion: reduce) {
+  .tb-fab, #touch-bar { transition: none; }
+  .tb-fab[aria-expanded="true"] { transform: none; }
+  #touch-bar.collapsed { transform: none; }
 }
 
 /* --- hidden keyboard shim (zero-size, off-screen) --------- */
@@ -251,6 +297,6 @@ body.topbar-hidden #topbar { display: none; }
   .btn { min-height: 44px; padding: 0 14px; line-height: 44px; }
   .download { min-height: 44px; padding: 0 10px; line-height: 44px; }
   .row { padding: 8px 12px; }
-  /* show touch-bar on coarse-pointer devices (JS also gates this) */
-  #touch-bar:not([hidden]) { display: flex; }
+  /* show floating touch tools on coarse-pointer devices (JS also gates this) */
+  #touch-tools:not([hidden]) { display: flex; }
 }

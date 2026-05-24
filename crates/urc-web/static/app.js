@@ -63,6 +63,11 @@ function startVNC() {
   rfb.scaleViewport  = true;   // fit canvas to local window
   rfb.resizeSession  = false;  // never resize the remote desktop
   rfb.clipViewport   = false;
+  // A fresh RFB starts at fit; clear any stale local-magnify state so a
+  // reconnect doesn't think we're still zoomed (defined below; hoisted vars).
+  zoomLevel = 1;
+  baseFitScale = null;
+  gesture = null;
   rfb.viewOnly       = false;
   rfb.background     = '#111';
   rfb.showDotCursor  = true;   // tiny dot as the local cursor; remote cursor lives in framebuffer
@@ -453,14 +458,37 @@ backdropEl.addEventListener('click', () => setPanelOpen(false));
 // read the variable at event time — never capture it in a closure here.
 
 const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+// Gate gestures on actual touch capability (independent of the media query so
+// a touch laptop with a mouse still gets pinch/pan on the canvas).
+const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-const touchBarEl = $('touch-bar');
-const kbdInputEl = $('keyboard-input');
+const touchToolsEl = $('touch-tools');
+const touchBarEl   = $('touch-bar');
+const fabEl        = $('tb-fab');
+const kbdInputEl   = $('keyboard-input');
 
 if (hasCoarsePointer) {
-  // Show the floating touch toolbar.
-  touchBarEl.hidden = false;
+  // Reveal the floating FAB + tool tray (tray starts collapsed behind it).
+  touchToolsEl.hidden = false;
 }
+
+// --- FAB: expand / collapse the tool tray --------------------------------
+function setToolsOpen(open) {
+  touchBarEl.classList.toggle('collapsed', !open);
+  touchBarEl.setAttribute('aria-hidden', open ? 'false' : 'true');
+  fabEl.setAttribute('aria-expanded', open ? 'true' : 'false');
+  fabEl.title = open ? 'Hide touch tools' : 'Show touch tools';
+}
+fabEl.addEventListener('click', () => {
+  setToolsOpen(touchBarEl.classList.contains('collapsed'));
+});
+// Tapping any tool inside the tray collapses it again (keeps the canvas clear).
+// The drag-lock toggle is exempt — the user needs the tray to release it.
+touchBarEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || btn.id === 'tb-drag') return;
+  setToolsOpen(false);
+});
 
 // Right-click button — synthesises mousedown+mouseup with button:2 on the
 // noVNC canvas. noVNC binds mouse* (not pointer*) listeners on its internal
@@ -576,6 +604,229 @@ kbdInputEl.addEventListener('compositionend', (e) => {
   }
   kbdInputEl.value = '';
 });
+
+// --- Local magnify + pan over the noVNC canvas -------------------------
+//
+// We drive noVNC's OWN viewport (display.scale / viewportChangePos / clip)
+// rather than CSS-transforming the canvas. noVNC maps a click to the
+// framebuffer as `cssOffset.x / display.scale + viewportLoc.x` (display.absX),
+// dividing by its own stored scale — so as long as we change *its* scale and
+// viewport, click coordinates stay correct automatically. A CSS transform
+// would desync clicks by the zoom factor.
+//
+// Zoom model:
+//   Z = 1  → "fit": rfb.scaleViewport=true, clipViewport=false (noVNC default).
+//            1-finger passes through to noVNC (click / drag / long-press);
+//            2-finger drag scrolls the remote (handed to noVNC's gesture
+//            handler — we don't intercept the at-fit 2-finger case).
+//   Z > 1  → "magnified": rfb.scaleViewport=false, clipViewport=true,
+//            display.scale = baseFitScale * Z. 2-finger drag PANS the viewport;
+//            pinch keeps the focal framebuffer point under the fingers.
+//
+// Gesture state machine (capture phase on the stable #screen wrapper, which is
+// the parent of noVNC's recreated canvas — capture runs before the canvas's
+// bubble-phase gesture listeners, and stopPropagation there prevents noVNC's
+// GestureHandler from also acting on the same touches):
+//   - 1 finger        → never intercepted; passes through to noVNC.
+//   - 2 fingers + Z==1 → pass through to noVNC ONLY if the gesture stays a
+//                        2-finger drag (remote scroll). The moment the pinch
+//                        distance changes enough we take over and magnify.
+//   - 2 fingers + Z>1  → we own it: pinch = zoom about midpoint, drag = pan.
+
+const MAX_ZOOM = 4;
+const PINCH_TAKEOVER_RATIO = 0.08; // distance must change >8% before we grab an at-fit pinch
+
+let zoomLevel = 1;        // Z; 1 == fit
+let baseFitScale = null;  // noVNC's fit scale captured the moment we leave fit
+
+// Active 2-finger gesture bookkeeping
+let gesture = null; // { startDist, startMidX/Y, lastMidX/Y, mode: 'scroll'|'pinch'|null }
+
+function novncDisplay() {
+  // rfb is reassigned each startVNC(); reach the internal display defensively.
+  return (rfb && rfb._display) ? rfb._display : null;
+}
+
+function fitScaleNow() {
+  // The scale noVNC currently uses at fit. While scaleViewport=true noVNC keeps
+  // display.scale up to date via autoscale, so read it live.
+  const d = novncDisplay();
+  return d ? d.scale : 1;
+}
+
+function applyZoom(z, focusClientX, focusClientY, prevScaleOverride) {
+  const d = novncDisplay();
+  if (!d) return;
+  const canvas = screenEl.querySelector('canvas');
+  if (!canvas) return;
+
+  z = Math.max(1, Math.min(MAX_ZOOM, z));
+
+  // Snap back to fit when we reach (or drop below) 1x.
+  if (z <= 1) {
+    resetToFit();
+    return;
+  }
+
+  // Transitioning out of fit: capture the fit scale and switch noVNC into
+  // manual clipped-scale mode.
+  if (zoomLevel <= 1) {
+    baseFitScale = fitScaleNow();
+    rfb.scaleViewport = false;
+    rfb.clipViewport  = true;
+  }
+
+  const prevScale = (typeof prevScaleOverride === 'number') ? prevScaleOverride : d.scale;
+  const newScale  = baseFitScale * z;
+
+  // Framebuffer point currently under the focal client point, BEFORE rescale.
+  const rect = canvas.getBoundingClientRect();
+  const offX = focusClientX - rect.left;
+  const offY = focusClientY - rect.top;
+  const fbX  = offX / prevScale; // viewport-relative fb coords (viewportLoc added by noVNC)
+  const fbY  = offY / prevScale;
+
+  d.scale = newScale; // setter → _rescale
+
+  // Keep the focal framebuffer point under the fingers: after rescale the same
+  // fb point sits at fbX*newScale css px from the viewport origin; shift the
+  // viewport so that lands back under the focal client offset.
+  const wantOffX = fbX * newScale;
+  const wantOffY = fbY * newScale;
+  const deltaCssX = wantOffX - offX;
+  const deltaCssY = wantOffY - offY;
+  // viewportChangePos moves the viewport in framebuffer units; convert css→fb
+  // and use the sign that keeps the point stationary. (clamps internally.)
+  d.viewportChangePos(deltaCssX / newScale, deltaCssY / newScale);
+
+  zoomLevel = z;
+}
+
+function panBy(deltaCssX, deltaCssY) {
+  const d = novncDisplay();
+  if (!d || zoomLevel <= 1) return;
+  // Content should follow the fingers: dragging right reveals content to the
+  // left, i.e. move the viewport origin left → negative framebuffer delta.
+  // viewportChangePos clamps to the framebuffer edges internally.
+  d.viewportChangePos(-deltaCssX / d.scale, -deltaCssY / d.scale);
+}
+
+function resetToFit() {
+  zoomLevel = 1;
+  baseFitScale = null;
+  if (!rfb) return;
+  rfb.clipViewport  = false;
+  rfb.scaleViewport = true; // noVNC recomputes the fit scale + recenters
+}
+
+function dist(t0, t1) {
+  return Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+}
+function mid(t0, t1) {
+  return { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+}
+
+// Intercept in the CAPTURE phase on the stable wrapper. Single-finger touches
+// are never stopped (so noVNC keeps clicks/drag/long-press). Two-finger touches
+// are intercepted only once we decide to own them.
+function onTouchStartCapture(e) {
+  if (e.touches.length !== 2) {
+    // 1 finger (or 3+): let noVNC handle it. If a 2-finger gesture was in
+    // progress, end it.
+    gesture = null;
+    return;
+  }
+  const m = mid(e.touches[0], e.touches[1]);
+  gesture = {
+    startDist: dist(e.touches[0], e.touches[1]),
+    lastMidX: m.x, lastMidY: m.y,
+    // While zoomed we own the gesture immediately (pan + pinch). At fit we
+    // stay 'pending' so a pure 2-finger DRAG can pass through to noVNC as a
+    // remote scroll; we only take over once the pinch distance changes enough.
+    mode: zoomLevel > 1 ? 'active' : 'pending',
+  };
+  if (gesture.mode === 'active') {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  // mode 'pending': do NOT stop propagation — noVNC's gesture handler also sees
+  // this touchstart and can start its 2-finger drag (remote scroll).
+}
+
+function onTouchMoveCapture(e) {
+  if (!gesture || e.touches.length !== 2) return;
+  const t0 = e.touches[0], t1 = e.touches[1];
+  const d = dist(t0, t1);
+  const m = mid(t0, t1);
+
+  if (gesture.mode === 'pending') {
+    // At fit: decide between remote-scroll (hand to noVNC) and local magnify.
+    const ratio = Math.abs(d - gesture.startDist) / (gesture.startDist || 1);
+    if (ratio > PINCH_TAKEOVER_RATIO) {
+      // Pinch detected → take over for local magnify from here on.
+      gesture.mode = 'active';
+      // Re-baseline so the first zoom step is smooth from the takeover point.
+      gesture.startDist = d;
+      gesture.lastMidX = m.x; gesture.lastMidY = m.y;
+    } else {
+      // Still looks like a pan/scroll — leave it to noVNC.
+      gesture.lastMidX = m.x; gesture.lastMidY = m.y;
+      return;
+    }
+  }
+
+  // mode 'active' — we own the gesture.
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Pan component: midpoint translation.
+  const dxMid = m.x - gesture.lastMidX;
+  const dyMid = m.y - gesture.lastMidY;
+  if (zoomLevel > 1 && (dxMid || dyMid)) {
+    panBy(dxMid, dyMid);
+  }
+
+  // Pinch component: distance ratio drives the zoom level about the midpoint.
+  if (gesture.startDist > 0) {
+    const scaleFactor = d / gesture.startDist;
+    if (Math.abs(scaleFactor - 1) > 0.001) {
+      const prevScale = baseFitScale ? baseFitScale * zoomLevel : fitScaleNow();
+      applyZoom(zoomLevel * scaleFactor, m.x, m.y, prevScale);
+      gesture.startDist = d; // incremental
+    }
+  }
+
+  gesture.lastMidX = m.x; gesture.lastMidY = m.y;
+}
+
+function onTouchEndCapture(e) {
+  // Gesture ends when we drop below 2 active fingers.
+  if (e.touches.length < 2) gesture = null;
+}
+
+if (hasTouch) {
+  // Capture phase + non-passive so preventDefault works for the cases we own.
+  screenEl.addEventListener('touchstart', onTouchStartCapture, { capture: true, passive: false });
+  screenEl.addEventListener('touchmove',  onTouchMoveCapture,  { capture: true, passive: false });
+  screenEl.addEventListener('touchend',   onTouchEndCapture,   { capture: true, passive: false });
+  screenEl.addEventListener('touchcancel', onTouchEndCapture,  { capture: true, passive: false });
+}
+
+// --- Zoom tool buttons ---------------------------------------------------
+function zoomStep(factor) {
+  const d = novncDisplay();
+  const canvas = screenEl.querySelector('canvas');
+  if (!d || !canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  // Zoom about the canvas centre for button presses.
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top  + rect.height / 2;
+  const prevScale = baseFitScale ? baseFitScale * zoomLevel : fitScaleNow();
+  applyZoom(zoomLevel * factor, cx, cy, prevScale);
+}
+$('tb-zoom-in').addEventListener('click',  () => zoomStep(1.4));
+$('tb-zoom-out').addEventListener('click', () => zoomStep(1 / 1.4));
+$('tb-fit').addEventListener('click', () => resetToFit());
 
 // --- boot --------------------------------------------------------------
 
