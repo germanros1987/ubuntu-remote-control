@@ -1,4 +1,18 @@
 * { box-sizing: border-box; }
+/* System-bar inset custom properties. The native Android shell injects the REAL
+   status/nav-bar insets onto document.documentElement at runtime
+   (--urc-inset-top/right/bottom/left, in px; 0px when none). These defaults
+   guarantee the vars always resolve before injection and keep desktop at 0.
+   Edge-touching controls combine BOTH sources via
+   max(env(safe-area-inset-X), var(--urc-inset-X)): env() covers display
+   cutouts/notches, the var() covers the opaque system bars (e.g. the landscape
+   nav bar that env() does not report inside a WebView). */
+:root {
+  --urc-inset-top: 0px;
+  --urc-inset-right: 0px;
+  --urc-inset-bottom: 0px;
+  --urc-inset-left: 0px;
+}
 html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 body { display: flex; flex-direction: column; }
 /* Honor `hidden` even on elements that have an explicit `display:` rule.
@@ -8,14 +22,13 @@ body { display: flex; flex-direction: column; }
 
 #topbar {
   display: flex; align-items: center; gap: 10px;
-  /* safe-area-inset-top: clears Android status bar / notch.
-     max() ensures desktop (inset=0) keeps the original 6px. */
-  padding-top: max(6px, env(safe-area-inset-top));
+  /* Clear the Android status bar / notch using BOTH inset sources.
+     max() ensures desktop (both 0) keeps the original 6px. */
+  padding-top: max(6px, env(safe-area-inset-top), var(--urc-inset-top, 0px));
   padding-bottom: 6px;
-  /* safe-area-inset-left/right: clears notch on landscape.
-     max() ensures desktop keeps the original 12px. */
-  padding-left: max(12px, env(safe-area-inset-left));
-  padding-right: max(12px, env(safe-area-inset-right));
+  /* Clear notch + landscape nav bar on the sides. */
+  padding-left: max(12px, env(safe-area-inset-left), var(--urc-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right), var(--urc-inset-right, 0px));
   background: #1c1c1f;
   border-bottom: 1px solid #2a2a2d;
   /* height is driven by padding + content; #layout uses flex:1 to fill
@@ -50,11 +63,11 @@ body.topbar-hidden #topbar { display: none; }
 
 .show-topbar {
   position: fixed;
-  /* safe-area-inset-top: pill clears Android status bar.
+  /* Pill clears Android status bar (env cutout + injected status-bar var).
      max() ensures desktop keeps the original 4px offset. */
-  top: max(4px, env(safe-area-inset-top));
-  /* safe-area-inset-right: clears notch / gesture area on landscape. */
-  right: max(4px, env(safe-area-inset-right));
+  top: max(4px, env(safe-area-inset-top), var(--urc-inset-top, 0px));
+  /* Clears notch / gesture area + landscape nav bar on the right. */
+  right: max(4px, env(safe-area-inset-right), var(--urc-inset-right, 0px));
   z-index: 1000;
   padding: 2px 6px;
   background: rgba(28, 28, 31, 0.7); color: #aaa;
@@ -178,10 +191,13 @@ body.topbar-hidden #topbar { display: none; }
    shown on coarse-pointer devices (also JS-gated). */
 #touch-tools {
   position: fixed;
-  /* safe-area-inset-bottom: clears Android on-screen nav bar. */
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  /* safe-area-inset-right: clears the gesture area in landscape. */
-  right: max(16px, env(safe-area-inset-right));
+  /* Keep the FAB above the Android on-screen nav bar. In portrait that bar is
+     at the bottom (env + injected bottom var); add the 16px gap on top of it. */
+  bottom: calc(16px + max(env(safe-area-inset-bottom), var(--urc-inset-bottom, 0px)));
+  /* In landscape the nav bar sits on the RIGHT and overlaps the FAB (user
+     screenshot), so the right offset must clear it too — combine the gesture
+     inset (env) with the injected nav-bar var. */
+  right: calc(16px + max(env(safe-area-inset-right), var(--urc-inset-right, 0px)));
   z-index: 300;
   display: flex; align-items: center; gap: 10px;
 }
@@ -261,15 +277,14 @@ body.topbar-hidden #topbar { display: none; }
     width: min(320px, 88vw); height: 100%;
     z-index: 200;
     box-shadow: -4px 0 24px rgba(0,0,0,0.6);
-    /* safe-area-inset-top: panel header clears the status bar.
-       env() resolves to 0 on desktop so this is a no-op there. */
-    padding-top: env(safe-area-inset-top);
-    /* safe-area-inset-right: panel right edge clears the notch
-       in landscape (the drawer opens from the right). */
-    padding-right: env(safe-area-inset-right);
-    /* safe-area-inset-bottom: last file rows / upload buttons
-       clear the Android on-screen nav bar. */
-    padding-bottom: env(safe-area-inset-bottom);
+    /* Panel header clears the status bar (env cutout + injected status var).
+       Both resolve to 0 on desktop so this is a no-op there. */
+    padding-top: max(env(safe-area-inset-top), var(--urc-inset-top, 0px));
+    /* Panel right edge clears the notch AND the landscape nav bar
+       (the drawer opens from the right, where the nav bar sits in landscape). */
+    padding-right: max(env(safe-area-inset-right), var(--urc-inset-right, 0px));
+    /* Last file rows / upload buttons clear the Android on-screen nav bar. */
+    padding-bottom: max(env(safe-area-inset-bottom), var(--urc-inset-bottom, 0px));
   }
   /* screen-wrap fills 100% width (panel floats over it) */
   #screen-wrap { width: 100%; }
@@ -280,13 +295,13 @@ body.topbar-hidden #topbar { display: none; }
   .btn-label { display: none; }
   #topbar {
     gap: 6px;
-    /* Replicate the safe-area-aware padding from the base rule,
-       using narrower fallback px values for this breakpoint.
-       max() keeps desktop (inset=0) at the intended 4px/8px. */
-    padding-top: max(4px, env(safe-area-inset-top));
+    /* Replicate the inset-aware padding from the base rule, using narrower
+       fallback px values for this breakpoint. max() over both inset sources
+       keeps desktop (both 0) at the intended 4px/8px. */
+    padding-top: max(4px, env(safe-area-inset-top), var(--urc-inset-top, 0px));
     padding-bottom: 4px;
-    padding-left: max(8px, env(safe-area-inset-left));
-    padding-right: max(8px, env(safe-area-inset-right));
+    padding-left: max(8px, env(safe-area-inset-left), var(--urc-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right), var(--urc-inset-right, 0px));
   }
 }
 

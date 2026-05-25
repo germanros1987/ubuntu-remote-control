@@ -34,6 +34,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -59,6 +60,13 @@ class MainActivity : AppCompatActivity() {
     // onShowCustomView (HTML5 fullscreen / requestFullscreen()) plumbing.
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
+    // Last system-bar insets in CSS px, cached so a freshly-loaded document (which
+    // loses the inline custom properties) can be re-primed in onPageFinished.
+    private var insetTopCss = 0
+    private var insetRightCss = 0
+    private var insetBottomCss = 0
+    private var insetLeftCss = 0
 
     private val fileChooserLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -118,6 +126,23 @@ class MainActivity : AppCompatActivity() {
             ),
         )
         configureWebView()
+
+        // Feed the REAL system-bar insets to the web layer. CSS env(safe-area-inset-*)
+        // on Android only reliably covers display cutouts, NOT the system navigation
+        // bar, so in landscape the 3-button nav bar overlaps the topbar/FAB. We read
+        // the systemBars() insets here and publish them as --urc-inset-* custom props;
+        // the SPA's CSS does max(env(...), var(--urc-inset-...,0px)).
+        ViewCompat.setOnApplyWindowInsetsListener(webView) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val density = resources.displayMetrics.density
+            insetTopCss = (bars.top / density).toInt()
+            insetRightCss = (bars.right / density).toInt()
+            insetBottomCss = (bars.bottom / density).toInt()
+            insetLeftCss = (bars.left / density).toInt()
+            injectInsets()
+            // Don't consume — let the system continue laying out the window.
+            insets
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -204,6 +229,14 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
             }
+
+            // A fresh document loses the inline --urc-inset-* custom properties, so
+            // re-prime them once the page is up (also covers orientation-change
+            // reloads). Live insets changes are handled by the insets listener.
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                injectInsets()
+            }
         }
 
         webView.webChromeClient = FullscreenChromeClient()
@@ -220,6 +253,20 @@ class MainActivity : AppCompatActivity() {
         // Avoid reloading if we're already there (e.g. duplicate broadcast).
         if (webView.url == url) return
         webView.loadUrl(url)
+    }
+
+    /**
+     * Publish the cached system-bar insets (CSS px) onto document.documentElement as
+     * the four --urc-inset-* custom properties the SPA's CSS reads. Re-run on every
+     * insets change AND on each onPageFinished (a fresh document drops inline vars).
+     * CONTRACT: sets exactly --urc-inset-top/right/bottom/left, units 'px'.
+     */
+    private fun injectInsets() {
+        val js = "document.documentElement.style.setProperty('--urc-inset-top','${insetTopCss}px');" +
+            "document.documentElement.style.setProperty('--urc-inset-right','${insetRightCss}px');" +
+            "document.documentElement.style.setProperty('--urc-inset-bottom','${insetBottomCss}px');" +
+            "document.documentElement.style.setProperty('--urc-inset-left','${insetLeftCss}px');"
+        webView.evaluateJavascript(js, null)
     }
 
     private fun enqueueDownload(
@@ -402,17 +449,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
-         * Raise the keyboard for dictation; if no voice IME looks available, open
-         * the system IME picker so the user can switch to Typeless / a voice
-         * keyboard, and surface the contextual onboarding when nothing fits.
+         * Raise the keyboard for dictation. Typeless being merely INSTALLED is not
+         * enough — it has to be the ACTIVE input method or tapping the mic just
+         * brings up the user's current (non-voice) keyboard. So: raise the keyboard,
+         * then if the CURRENT default IME isn't Typeless, open the IME picker so the
+         * user can switch to it. When Typeless isn't installed at all, fall back to
+         * the contextual install/enable onboarding.
          */
         @JavascriptInterface
         fun startDictation() {
             runOnUiThread {
                 showSoftKeyboard()
-                if (!isVoiceImeReady()) {
+                if (isTypelessActive()) return@runOnUiThread
+                if (isTypelessInstalled()) {
+                    // Installed but not the active IME → let the user switch to it.
                     val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                     imm?.showInputMethodPicker()
+                } else {
+                    // Not installed → contextual install/enable onboarding.
                     maybeShowVoiceOnboarding()
                 }
             }
@@ -427,22 +481,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Best-effort: is a plausible voice-dictation keyboard available? Heuristic
-     * (intentionally simple, never throws): true if Typeless is installed, or if
-     * the user has more than one IME enabled (i.e. they added a keyboard beyond
-     * the single OEM default, the usual sign a voice keyboard is set up). A false
-     * negative only costs an extra IME-picker prompt. Native-only — see the
-     * [UrcNative] class doc for why this isn't exposed to page JS.
+     * Is Typeless the CURRENTLY ACTIVE input method? Reads the default-IME id from
+     * Settings.Secure.DEFAULT_INPUT_METHOD (an id like
+     * "com.typeless.mobile/.XxxService") and checks the package prefix. This is the
+     * distinction that matters for dictation: installed ≠ active, and only the
+     * active IME determines what comes up when the keyboard is shown. Never throws —
+     * see the [UrcNative] class doc for why this isn't exposed to page JS.
      */
-    private fun isVoiceImeReady(): Boolean {
-        if (isTypelessInstalled()) return true
-        return try {
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            (imm?.enabledInputMethodList?.size ?: 0) > 1
+    private fun isTypelessActive(): Boolean =
+        try {
+            val current = Settings.Secure.getString(
+                contentResolver,
+                Settings.Secure.DEFAULT_INPUT_METHOD,
+            )
+            current?.startsWith(TYPELESS_PKG) == true
         } catch (e: Exception) {
             false
         }
-    }
 
     /** Reliable install probe (needs the <queries> entry, mirrors HostListActivity). */
     private fun isTypelessInstalled(): Boolean =

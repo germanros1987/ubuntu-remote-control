@@ -773,6 +773,27 @@ function fitScaleNow() {
   return d ? d.scale : 1;
 }
 
+// Force a synchronous full repaint of the whole viewport.
+//
+// noVNC's viewportChangeSize/_rescale CLEAR the visible canvas, then rely on
+// flip() to re-blit from the backbuffer. But flip() DEFERS (queues a 'flip'
+// action) whenever _renderQ is non-empty, and on a static framebuffer (no
+// incoming FBU) the queue may not drain promptly — leaving the cleared canvas
+// BLACK. After every viewport/scale change we re-damage the full viewport and
+// flip immediately so the framebuffer is re-blitted right away. Guarded for
+// nulls (rfb is recreated on reconnect) and for an empty render queue so we
+// don't fight an in-flight async decode.
+function forceRepaint(d) {
+  if (!d || !d._viewportLoc) return;
+  const vp = d._viewportLoc;
+  try {
+    d._damage(vp.x, vp.y, vp.w, vp.h);
+    // flip(true) bypasses the "defer while _renderQ non-empty" branch so the
+    // re-blit happens synchronously even on a static framebuffer.
+    d.flip(true);
+  } catch (_) { /* defensive: internal shape changed */ }
+}
+
 function applyZoom(z, focusClientX, focusClientY, prevScaleOverride) {
   const d = novncDisplay();
   if (!d) return;
@@ -788,7 +809,16 @@ function applyZoom(z, focusClientX, focusClientY, prevScaleOverride) {
   }
 
   const prevScale = (typeof prevScaleOverride === 'number') ? prevScaleOverride : d.scale;
-  const newScale  = baseFitScale * z;
+  let newScale = baseFitScale * z;
+  // Guard against a non-finite or non-positive scale: baseFitScale can be 0/NaN
+  // if it was captured while the container was transiently 0px (autoscale
+  // returns 0 then). Setting d.scale<=0 makes absX/absY return 0 and the canvas
+  // collapse to nothing → black. Recapture the fit scale and bail if still bad.
+  if (!(newScale > 0) || !Number.isFinite(newScale)) {
+    baseFitScale = fitScaleNow();
+    newScale = baseFitScale * z;
+    if (!(newScale > 0) || !Number.isFinite(newScale)) return;
+  }
 
   // Capture the ABSOLUTE framebuffer point under the focal client point BEFORE
   // we change anything (works whether we're at fit or already magnified).
@@ -827,6 +857,10 @@ function applyZoom(z, focusClientX, focusClientY, prevScaleOverride) {
   d.viewportChangePos(wantX - vpNow.x, wantY - vpNow.y);
 
   zoomLevel = z;
+
+  // viewportChangeSize/_rescale cleared the canvas; re-blit synchronously so a
+  // static framebuffer doesn't stay black (see forceRepaint).
+  forceRepaint(d);
 }
 
 function panBy(deltaCssX, deltaCssY) {
@@ -836,14 +870,79 @@ function panBy(deltaCssX, deltaCssY) {
   // left, i.e. move the viewport origin left → negative framebuffer delta.
   // viewportChangePos clamps to the framebuffer edges internally.
   d.viewportChangePos(-deltaCssX / d.scale, -deltaCssY / d.scale);
+  forceRepaint(d);
 }
 
 function resetToFit() {
   zoomLevel = 1;
   baseFitScale = null;
   if (!rfb) return;
+  // Order matters: turn clipping off first, then scaling on. scaleViewport's
+  // setter recomputes the fit scale (autoscale) and clears clip; setting it
+  // last guarantees noVNC lands in the canonical fit state (scale!=0, full
+  // framebuffer viewport, recentered).
   rfb.clipViewport  = false;
   rfb.scaleViewport = true; // noVNC recomputes the fit scale + recenters
+  // autoscale → _rescale clears the canvas; re-blit so Fit is never black.
+  forceRepaint(novncDisplay());
+}
+
+// --- ResizeObserver stomp guard ----------------------------------------
+//
+// noVNC installs its OWN ResizeObserver on its internal _screen element. Any
+// layout tick (Android IME open/close, system-bar inset injection, address-bar
+// collapse, rotation) fires it → _handleResize → _updateScale. Because we run
+// magnify with scaleViewport=false, _updateScale unconditionally does
+// `display.scale = 1.0` (rfb.js _updateScale) and _updateClip resizes the
+// viewport to the full container — STOMPING our magnify scale + viewport and
+// (combined with the deferred flip) blanking the canvas.
+//
+// We can't disable noVNC's observer, so we race it: install our own observer on
+// the same screen wrapper. When zoomed, after noVNC's handler runs (it defers
+// its work to requestAnimationFrame) we re-apply applyZoom to restore
+// scale+viewport+repaint. We re-assert on a rAF too, so we run AFTER noVNC's
+// rAF callback (same-frame rAF callbacks run in registration order, but ours is
+// scheduled from a later observer tick, so it lands after noVNC's work).
+let stompObserver = null;
+let reassertScheduled = false;
+
+function reassertZoom() {
+  reassertScheduled = false;
+  if (zoomLevel <= 1) return;
+  const d = novncDisplay();
+  const canvas = screenEl.querySelector('canvas');
+  if (!d || !canvas) return;
+  // noVNC may have flipped us back to scaleViewport=true / scale=1.0. Re-apply
+  // the current zoom centered on the container so scale, clipped viewport, and
+  // the repaint are all restored. Pass baseFitScale*zoomLevel as the prevScale
+  // so the focal-point math treats the (stomped) state as if still magnified.
+  const rect = canvas.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  // Re-establish manual clipped-scale mode if noVNC reset it.
+  if (rfb && rfb.scaleViewport) {
+    rfb.scaleViewport = false;
+    rfb.clipViewport = true;
+  }
+  const prevScale = baseFitScale ? baseFitScale * zoomLevel : fitScaleNow();
+  applyZoom(zoomLevel, cx, cy, prevScale);
+}
+
+function onContainerResize() {
+  // Only fight the stomp while magnified; at fit noVNC's own handling is
+  // exactly what we want. Defer to a rAF so we run after noVNC's rAF work.
+  if (zoomLevel <= 1 || reassertScheduled) return;
+  reassertScheduled = true;
+  // Double rAF: noVNC schedules its _updateClip/_updateScale in ITS rAF from
+  // the same observer batch; a second frame guarantees we re-assert after it.
+  requestAnimationFrame(() => requestAnimationFrame(reassertZoom));
+}
+
+if (hasTouch && 'ResizeObserver' in window) {
+  // Observe the same wrapper noVNC's canvas lives in. screenEl (#screen) is the
+  // stable parent; its size tracks the container the nav-bar insets shrink.
+  stompObserver = new ResizeObserver(onContainerResize);
+  stompObserver.observe(screenEl);
 }
 
 function dist(t0, t1) {
