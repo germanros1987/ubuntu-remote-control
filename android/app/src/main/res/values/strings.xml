@@ -37,4 +37,11 @@
     <string name="onboard_pair_body">On your PC run <b>urc share</b>, then tap Scan QR below to connect.</string>
     <string name="onboard_pair_action">Scan QR</string>
     <string name="onboard_dismiss">Dismiss</string>
+
+    <!-- Voice-dictation onboarding (MainActivity, shown from startDictation()). -->
+    <string name="voice_onboard_title">Voice typing</string>
+    <string name="voice_install_body">Voice typing needs a voice keyboard. Install Typeless, then enable it as a keyboard to dictate into any field.</string>
+    <string name="voice_install_action">Install Typeless</string>
+    <string name="voice_enable_body">Enable a voice keyboard (e.g. Typeless) in your keyboard settings, then pick it from the keyboard switcher to dictate.</string>
+    <string name="voice_enable_action">Keyboard settings</string>
 </resources>

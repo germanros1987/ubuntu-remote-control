@@ -75,7 +75,25 @@ If QR and deep links don't work:
    - **Remote desktop**: Pan and pinch to zoom; two-finger tap for right-click
    - **Files drawer** (swipe left edge or tap ☰): Upload single/multiple files or download them as ZIP
    - **Soft keyboard** (⌨ button): On-screen keyboard for text input
+   - **Voice dictation** (🎤 button): Speak to type at the remote cursor
    - **Exit** (tap top-left X or back button): Close the session and return to host list
+
+### Voice dictation
+
+Tap the **🎤** button to dictate text hands-free:
+
+1. The soft keyboard appears. If you have a voice-enabled keyboard installed (recommended: **Typeless**), select it when prompted
+2. **Speak** — your words are transcribed by the IME and sent as keystrokes to the remote cursor
+3. Tap **⌨** to switch back to manual typing, or tap **🎤** again to dictate more
+
+**Why it's safe**: Dictation rides the Android input method engine (IME) → remote keystroke path. Audio never leaves your phone through URC — the IME owns the microphone. No special permissions or network overhead. The remote machine receives plain text just like typed input.
+
+**Supported voice keyboards**:
+- **Typeless** (recommended): Fast, reliable, offline-capable. Install from Google Play Store (package: `com.typeless.mobile`), then enable in Android Settings → **Languages & input** → **Virtual keyboards** → **Typeless** (toggle on), or tap **Manage keyboards** and enable it there.
+- **Gboard voice typing**: Also works; built into Google Keyboard if you have Gboard installed
+- Any other voice IME that integrates with Android's keyboard framework
+
+If no voice keyboard is detected, the app shows an onboarding dialog pointing to Typeless on the Play Store.
 
 ### File operations
 

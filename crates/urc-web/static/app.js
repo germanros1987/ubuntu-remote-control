@@ -562,47 +562,166 @@ function onDragTouchMove(e) {
   }));
 }
 
-// Keyboard button — focuses the hidden textarea to summon soft keyboard.
+// Keyboard button — calls the native bridge when present; falls back to the
+// off-screen-focus trick (iOS needs the element briefly on-screen).
 $('tb-kbd').addEventListener('click', () => {
-  kbdInputEl.focus();
-  // Ensure it's on screen for iOS which refuses to show keyboard for
-  // elements with zero/tiny bounding box — briefly move it into view.
-  kbdInputEl.style.top  = '50%';
-  kbdInputEl.style.left = '50%';
-  setTimeout(() => {
-    kbdInputEl.style.top  = '-200px';
-    kbdInputEl.style.left = '-200px';
-  }, 300);
-});
-
-// Forward keydown events from the hidden textarea into the VNC session.
-kbdInputEl.addEventListener('keydown', (e) => {
-  if (!rfb) return; // read rfb at event time
-  e.preventDefault();
-  // Map KeyboardEvent.key to X11 keysym via noVNC's KeyTable when available,
-  // otherwise fall back to charCodeAt for printable characters.
-  const KeyTable = window.KeyTable;
-  let keysym = 0;
-  if (KeyTable && KeyTable[e.code]) {
-    keysym = KeyTable[e.code];
-  } else if (e.key && e.key.length === 1) {
-    keysym = e.key.codePointAt(0);
+  if (window.UrcNative) {
+    window.UrcNative.showKeyboard();
+  } else {
+    kbdInputEl.focus();
+    // Briefly move onto screen for iOS — it refuses to show the keyboard for
+    // elements with zero/tiny bounding boxes.
+    kbdInputEl.style.top  = '50%';
+    kbdInputEl.style.left = '50%';
+    setTimeout(() => {
+      kbdInputEl.style.top  = '-200px';
+      kbdInputEl.style.left = '-200px';
+    }, 300);
   }
-  if (keysym) rfb.sendKey(keysym, e.code, true);
-  if (keysym) rfb.sendKey(keysym, e.code, false);
 });
 
-// Forward composed text (e.g. CJK IME) as individual codepoints.
-kbdInputEl.addEventListener('compositionend', (e) => {
+// Mic button — triggers voice dictation via the native bridge when available;
+// on desktop (no bridge) just focus the field so the user can type.
+$('tb-mic').addEventListener('click', () => {
+  kbdInputEl.focus();
+  if (window.UrcNative) {
+    window.UrcNative.startDictation();
+  }
+});
+
+// --- Keyboard-input forwarding -----------------------------------------
+//
+// Three cooperative listeners on #keyboard-input:
+//
+//   keydown      — special keys only (Enter, Backspace, arrows, etc. + Ctrl/Alt
+//                  combos). These are sent here and preventDefault-ed so they
+//                  do NOT mutate textarea.value and do NOT trigger a subsequent
+//                  `input` event → no double-send.
+//
+//   input        — SINGLE SOURCE OF TRUTH for printable text. Skipped while
+//                  e.isComposing=true (intermediate CJK buffer — garbage if
+//                  sent). Diffs textarea.value vs the last-known value; sends
+//                  inserted chars as keysym down+up, BackSpace (0xff08) for
+//                  deleted chars. After forwarding the value is normalised back
+//                  to the seed char so the diff base stays small. Voice
+//                  dictation (one-shot bulk insert, isComposing=false) lands
+//                  here and is unaffected by the guard.
+//
+//   compositionend — secondary path for IMEs that commit WITHOUT a trailing
+//                  non-composing `input` event (some Android keyboards). The
+//                  isComposing guard on `input` + kbdSeedField() reset together
+//                  ensure no double-send: by the time compositionend fires the
+//                  diff base is at the seed value, so any subsequent non-
+//                  composing `input` would diff correctly against it.
+
+// Keysym helpers ---------------------------------------------------------
+
+// Returns the X11 keysym for a single printable character.
+function charKeysym(ch) {
+  return ch.codePointAt(0);
+}
+
+// Returns the X11 keysym for a special key, or 0 if not special.
+// Used by the keydown handler.
+function specialKeysym(e) {
+  const KeyTable = window.KeyTable;
+  // Ctrl/Alt combos — let KeyTable resolve the base key.
+  if (e.ctrlKey || e.altKey) {
+    if (KeyTable && KeyTable[e.code]) return KeyTable[e.code];
+    if (e.key && e.key.length === 1) return e.key.codePointAt(0);
+    return 0;
+  }
+  // Named special keys.
+  const named = {
+    Enter: 0xff0d, Backspace: 0xff08, Tab: 0xff09, Escape: 0xff1b,
+    Delete: 0xffff, Home: 0xff50, End: 0xff57,
+    ArrowLeft: 0xff51, ArrowUp: 0xff52, ArrowRight: 0xff53, ArrowDown: 0xff54,
+    PageUp: 0xff55, PageDown: 0xff56,
+    F1:  0xffbe, F2:  0xffbf, F3:  0xffc0, F4:  0xffc1,
+    F5:  0xffc2, F6:  0xffc3, F7:  0xffc4, F8:  0xffc5,
+    F9:  0xffc6, F10: 0xffc7, F11: 0xffc8, F12: 0xffc9,
+  };
+  return named[e.key] || 0;
+}
+
+// Diff state — tracks the last value seen by the `input` handler so we can
+// compute inserted/deleted characters.
+let kbdPrevValue = '';
+
+// Seed value written into the textarea after each forward so there is always
+// a char to diff against (prevents the field going empty, which stops some
+// soft keyboards from firing `input` on the next keystroke).
+const KBD_SEED = 'x';
+
+function kbdSeedField() {
+  kbdInputEl.value = KBD_SEED;
+  kbdPrevValue = KBD_SEED;
+}
+
+// keydown — special keys only; preventDefault prevents textarea mutation.
+kbdInputEl.addEventListener('keydown', (e) => {
   if (!rfb) return;
-  for (const ch of e.data || '') {
-    const keysym = ch.codePointAt(0);
+  const keysym = specialKeysym(e);
+  if (!keysym) return; // printable key — let `input` handle it
+  e.preventDefault();
+  rfb.sendKey(keysym, e.code, true);
+  rfb.sendKey(keysym, e.code, false);
+});
+
+// input — single source of truth for all printable text (typed, dictated, IME).
+kbdInputEl.addEventListener('input', (e) => {
+  if (!rfb) return;
+  // Skip intermediate composition events (CJK pinyin buffer in progress).
+  // Dictation is a one-shot insert with isComposing=false and passes through.
+  if (e.isComposing) return;
+  const cur  = kbdInputEl.value;
+  const prev = kbdPrevValue;
+
+  // Find the longest common prefix and suffix to determine the edit region.
+  let prefixLen = 0;
+  const minLen = Math.min(cur.length, prev.length);
+  while (prefixLen < minLen && cur[prefixLen] === prev[prefixLen]) prefixLen++;
+
+  let curSuffix  = cur.length  - prefixLen;
+  let prevSuffix = prev.length - prefixLen;
+  // Trim matching suffix.
+  while (curSuffix > 0 && prevSuffix > 0 &&
+         cur[prefixLen + curSuffix - 1] === prev[prefixLen + prevSuffix - 1]) {
+    curSuffix--;
+    prevSuffix--;
+  }
+
+  // Send BackSpace for each deleted character.
+  for (let i = 0; i < prevSuffix; i++) {
+    rfb.sendKey(0xff08, 'Backspace', true);
+    rfb.sendKey(0xff08, 'Backspace', false);
+  }
+
+  // Send each inserted character.
+  const inserted = cur.slice(prefixLen, prefixLen + curSuffix);
+  for (const ch of inserted) {
+    const keysym = charKeysym(ch);
     if (keysym) {
       rfb.sendKey(keysym, null, true);
       rfb.sendKey(keysym, null, false);
     }
   }
-  kbdInputEl.value = '';
+
+  // Reset to seed so the diff base stays small and IME stays happy.
+  kbdSeedField();
+});
+
+// compositionend — secondary path for IMEs that commit without firing `input`.
+kbdInputEl.addEventListener('compositionend', (e) => {
+  if (!rfb) return;
+  for (const ch of e.data || '') {
+    const keysym = charKeysym(ch);
+    if (keysym) {
+      rfb.sendKey(keysym, null, true);
+      rfb.sendKey(keysym, null, false);
+    }
+  }
+  kbdSeedField();
 });
 
 // --- Local magnify + pan over the noVNC canvas -------------------------
