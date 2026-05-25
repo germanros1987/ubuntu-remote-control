@@ -668,6 +668,19 @@ function applyZoom(z, focusClientX, focusClientY, prevScaleOverride) {
     return;
   }
 
+  const prevScale = (typeof prevScaleOverride === 'number') ? prevScaleOverride : d.scale;
+  const newScale  = baseFitScale * z;
+
+  // Capture the ABSOLUTE framebuffer point under the focal client point BEFORE
+  // we change anything (works whether we're at fit or already magnified).
+  // noVNC maps screen→fb as fb = cssOffset/scale + viewportLoc; invert it.
+  const rect = canvas.getBoundingClientRect();
+  const offX = focusClientX - rect.left;
+  const offY = focusClientY - rect.top;
+  const vpPrev = d._viewportLoc || { x: 0, y: 0 };
+  const fbFocusX = offX / prevScale + vpPrev.x;
+  const fbFocusY = offY / prevScale + vpPrev.y;
+
   // Transitioning out of fit: capture the fit scale and switch noVNC into
   // manual clipped-scale mode.
   if (zoomLevel <= 1) {
@@ -676,28 +689,23 @@ function applyZoom(z, focusClientX, focusClientY, prevScaleOverride) {
     rfb.clipViewport  = true;
   }
 
-  const prevScale = (typeof prevScaleOverride === 'number') ? prevScaleOverride : d.scale;
-  const newScale  = baseFitScale * z;
+  // THE FILL FIX: size the clip viewport to the CONTAINER (container css px /
+  // scale = visible fb px). noVNC then renders canvas = scale * vp = container,
+  // so the magnified view fills the whole screen and is cropped to the screen's
+  // aspect — instead of scaling the whole-framebuffer rectangle and leaving
+  // letterbox dead space. Set the size FIRST so the subsequent _rescale uses it.
+  const cw = screenEl.clientWidth;
+  const ch = screenEl.clientHeight;
+  d.viewportChangeSize(cw / newScale, ch / newScale); // clamps to fb + floors
+  d.scale = newScale;                                 // _rescale → canvas css ≈ container
 
-  // Framebuffer point currently under the focal client point, BEFORE rescale.
-  const rect = canvas.getBoundingClientRect();
-  const offX = focusClientX - rect.left;
-  const offY = focusClientY - rect.top;
-  const fbX  = offX / prevScale; // viewport-relative fb coords (viewportLoc added by noVNC)
-  const fbY  = offY / prevScale;
-
-  d.scale = newScale; // setter → _rescale
-
-  // Keep the focal framebuffer point under the fingers: after rescale the same
-  // fb point sits at fbX*newScale css px from the viewport origin; shift the
-  // viewport so that lands back under the focal client offset.
-  const wantOffX = fbX * newScale;
-  const wantOffY = fbY * newScale;
-  const deltaCssX = wantOffX - offX;
-  const deltaCssY = wantOffY - offY;
-  // viewportChangePos moves the viewport in framebuffer units; convert css→fb
-  // and use the sign that keeps the point stationary. (clamps internally.)
-  d.viewportChangePos(deltaCssX / newScale, deltaCssY / newScale);
+  // Re-place the viewport so the focal fb point lands back under the focal
+  // client offset. viewportChangePos takes a framebuffer-unit delta and clamps
+  // to the framebuffer edges internally.
+  const vpNow = d._viewportLoc || { x: 0, y: 0 };
+  const wantX = fbFocusX - offX / newScale;
+  const wantY = fbFocusY - offY / newScale;
+  d.viewportChangePos(wantX - vpNow.x, wantY - vpNow.y);
 
   zoomLevel = z;
 }
