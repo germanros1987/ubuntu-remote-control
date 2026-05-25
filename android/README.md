@@ -56,6 +56,40 @@ Other hardening:
 - `WebView.setWebContentsDebuggingEnabled(true)` is called **only** when
   `BuildConfig.DEBUG` — never in release builds.
 
+### JavaScript bridge (`window.UrcNative`)
+
+`MainActivity` exposes a single `@JavascriptInterface` object, `UrcNative`,
+purely to support voice dictation: the page can't reliably summon the Android
+soft keyboard from JS (the off-screen-`<textarea>` focus trick is flaky), and
+voice typing requires a voice IME the page can't reach. The bridge is the
+**only** JS→native channel in the app, and it is intentionally tiny and
+**fixed-action**. Exactly **two** methods are JS-callable (the only ones the SPA
+uses):
+
+- `showKeyboard()` — focus the WebView and raise the soft keyboard.
+- `startDictation()` — raise the keyboard and, when no voice IME is detected,
+  open the system IME picker + a dismissible Typeless onboarding dialog.
+
+Everything else the bridge needs — voice-IME detection, the hard-coded
+`market://` Typeless install intent, the IME-settings intent — lives in ordinary
+**private** activity methods reached only from native code (e.g. `startDictation`
+→ `maybeShowVoiceOnboarding`), and is **not** `@JavascriptInterface`-exposed.
+Keeping the surface to two methods denies page JS even the one-bit "is Typeless
+installed / is a voice IME enabled" disclosure that probe methods would leak.
+
+**Why it's safe:** the only origin that can ever hold this object is our own
+agent-served SPA on the loopback proxy — `WebViewClient.shouldOverrideUrlLoading`
+punts any non-`127.0.0.1` navigation to the system browser, so an external page
+never runs in this WebView. Even granting that, **no method takes a
+page-supplied string that selects an intent, URL, file, or package**: every
+intent target is a compile-time constant. Nothing exposes the tunnel, proxy
+port, host list, cookies, or filesystem; methods don't throw across the bridge
+and UI work hops to the main thread. There is **no `RECORD_AUDIO`** permission —
+the voice IME owns the mic, out of this app's process. The contract is
+documented at the `UrcNative` class in `MainActivity.kt`; adding a
+`@JavascriptInterface` method, or a parameter that influences which
+intent/file/URL is touched, would break these guarantees.
+
 ## Build
 
 Requires the Android SDK (platform 35, build-tools 34.0.0) and JDK 17+.
@@ -95,3 +129,7 @@ tailnet with a sharing PC:
 - **Folder upload** is unsupported by Android's WebView file chooser
   (`webkitdirectory` is a no-op); single/multi-file upload works. Folder upload
   remains a phase-2 item (would need a custom JS bridge or SAF tree picker).
+- **Voice dictation bridge** (`window.UrcNative`): the soft keyboard actually
+  appearing on `showKeyboard()`, the IME picker opening on `startDictation()`,
+  the `voiceImeReady()` heuristic, and the Typeless onboarding dialog all need a
+  physical device with real IMEs to validate.

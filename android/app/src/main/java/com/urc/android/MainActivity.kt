@@ -14,11 +14,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
@@ -29,6 +32,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -171,6 +175,15 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
         }
+        // The page taps ⌨/🎤 then calls UrcNative.showKeyboard(); the WebView must
+        // be able to take input focus for the IME to attach to it.
+        webView.isFocusable = true
+        webView.isFocusableInTouchMode = true
+
+        // Native bridge for the soft-keyboard / voice-dictation onboarding. The
+        // surface is intentionally tiny and side-effect-bounded — see [UrcNative].
+        webView.addJavascriptInterface(UrcNative(), "UrcNative")
+
         CookieManager.getInstance().setAcceptCookie(true)
         // Single-origin loopback app — there is no third party. Keep them off.
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
@@ -348,8 +361,148 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * `window.UrcNative` — the ONLY JavaScript→native bridge in this app.
+     *
+     * JS-CALLABLE SURFACE: exactly two methods, [showKeyboard] and
+     * [startDictation] (the only ones the SPA calls). Everything else the bridge
+     * needs — voice-IME detection, the Typeless install intent, the IME-settings
+     * intent — lives in ordinary private methods on the activity and is reached
+     * only from native code (e.g. [startDictation] → [maybeShowVoiceOnboarding]),
+     * never exposed to the page. Keeping the surface this small is deliberate: it
+     * denies page JS even the one-bit "is Typeless installed / is a voice IME
+     * enabled" disclosure those probes would otherwise leak.
+     *
+     * TRUST ASSUMPTION: the page calling this is our own agent-served SPA loaded
+     * over the on-device loopback proxy (`http://127.0.0.1:<port>/`). That origin
+     * is fully trusted (see the WebView/loopback notes in [configureWebView] and
+     * README "Security model"). The WebView never navigates off-loopback —
+     * [WebViewClient.shouldOverrideUrlLoading] punts any non-127.0.0.1 host to the
+     * system browser, so an external page cannot end up holding this object.
+     *
+     * Even so the surface is deliberately TINY and FIXED-ACTION: each method only
+     * toggles the soft keyboard / IME picker (and, for dictation, may open a
+     * hard-coded market:// or Settings intent from native code). NOTHING here
+     * takes a page-supplied string that selects an intent, URL, file, or package,
+     * and nothing exposes the tunnel, proxy port, host list, cookies, or
+     * filesystem. Adding a @JavascriptInterface method, or a parameter that
+     * influences which intent/URL/file is touched, would break that guarantee — do
+     * not. UI work hops to the main thread; methods never throw across the bridge.
+     */
+    private inner class UrcNative {
+
+        /**
+         * Summon the soft keyboard against the WebView. FIXES the bug where the
+         * page's off-screen-<textarea>-focus trick failed to raise the IME — we
+         * ask the platform [InputMethodManager] directly, which is reliable.
+         */
+        @JavascriptInterface
+        fun showKeyboard() {
+            runOnUiThread { showSoftKeyboard() }
+        }
+
+        /**
+         * Raise the keyboard for dictation; if no voice IME looks available, open
+         * the system IME picker so the user can switch to Typeless / a voice
+         * keyboard, and surface the contextual onboarding when nothing fits.
+         */
+        @JavascriptInterface
+        fun startDictation() {
+            runOnUiThread {
+                showSoftKeyboard()
+                if (!isVoiceImeReady()) {
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                    imm?.showInputMethodPicker()
+                    maybeShowVoiceOnboarding()
+                }
+            }
+        }
+    }
+
+    /** Focus the WebView and ask the IME to appear over it. Must run on the UI thread. */
+    private fun showSoftKeyboard() {
+        webView.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /**
+     * Best-effort: is a plausible voice-dictation keyboard available? Heuristic
+     * (intentionally simple, never throws): true if Typeless is installed, or if
+     * the user has more than one IME enabled (i.e. they added a keyboard beyond
+     * the single OEM default, the usual sign a voice keyboard is set up). A false
+     * negative only costs an extra IME-picker prompt. Native-only — see the
+     * [UrcNative] class doc for why this isn't exposed to page JS.
+     */
+    private fun isVoiceImeReady(): Boolean {
+        if (isTypelessInstalled()) return true
+        return try {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            (imm?.enabledInputMethodList?.size ?: 0) > 1
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Reliable install probe (needs the <queries> entry, mirrors HostListActivity). */
+    private fun isTypelessInstalled(): Boolean =
+        try {
+            packageManager.getPackageInfo(TYPELESS_PKG, 0)
+            true
+        } catch (e: PackageManager.NameNotFoundException) {
+            false
+        } catch (e: Exception) {
+            false
+        }
+
+    /** Deep-link Typeless in the Play Store; web fallback (mirrors openTailscale). */
+    private fun openTypelessInstallInternal() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$TYPELESS_PKG")))
+        } catch (e: Exception) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$TYPELESS_PKG")))
+        }
+    }
+
+    /**
+     * Contextual, dismissible onboarding shown from [UrcNative.startDictation] when
+     * no voice IME looks available. Voice is optional — this is never a
+     * launch-blocking card. Mirrors the Tailscale-needed dialog idioms.
+     */
+    private fun maybeShowVoiceOnboarding() {
+        val installed = isTypelessInstalled()
+        val bodyRes = if (installed) R.string.voice_enable_body else R.string.voice_install_body
+        val builder = AlertDialog.Builder(this)
+            .setTitle(R.string.voice_onboard_title)
+            .setMessage(bodyRes)
+            .setNegativeButton(R.string.cancel, null)
+        if (installed) {
+            // Typeless present but not the active voice keyboard → send to IME settings.
+            builder.setPositiveButton(R.string.voice_enable_action) { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                } catch (e: Exception) {
+                    Log.e(TAG, "ime settings failed", e)
+                }
+            }
+        } else {
+            builder.setPositiveButton(R.string.voice_install_action) { _, _ -> openTypelessInstallInternal() }
+                .setNeutralButton(R.string.voice_enable_action) {
+                    _, _ ->
+                    try {
+                        startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "ime settings failed", e)
+                    }
+                }
+        }
+        builder.show()
+    }
+
     companion object {
         private const val TAG = "MainActivity"
+        /** Typeless voice keyboard package — kept in sync with the manifest <queries>. */
+        private const val TYPELESS_PKG = "com.typeless.mobile"
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         const val EXTRA_DISPLAY = "display"

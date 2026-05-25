@@ -2,14 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Android 11+ (API 30) package-visibility: without this <queries> entry,
-      PackageManager.getPackageInfo("com.tailscale.ipn", 0) throws
-      NameNotFoundException even when Tailscale IS installed, and
-      launchIntentForPackage() returns null. We probe Tailscale's presence to
-      drive the launch-time onboarding card, so declare it explicitly.
+      Android 11+ (API 30) package-visibility: without these <queries> entries,
+      PackageManager.getPackageInfo(pkg, 0) throws NameNotFoundException even when
+      the app IS installed, and launchIntentForPackage() returns null. We probe
+      Tailscale's presence for the launch-time onboarding card, and Typeless's
+      (the voice keyboard) for the voice-dictation onboarding, so declare both.
     -->
     <queries>
         <package android:name="com.tailscale.ipn" />
+        <package android:name="com.typeless.mobile" />
     </queries>
 
     <!-- Talk to the tailnet peer (over the loopback proxy) and download files. -->
@@ -70,7 +71,8 @@
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
             android:hardwareAccelerated="true"
-            android:launchMode="singleTop" />
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".discovery.QrScanActivity"
