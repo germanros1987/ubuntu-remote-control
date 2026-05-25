@@ -72,11 +72,31 @@ If QR and deep links don't work:
 2. The app connects via the loopback TLS proxy and loads the web UI in fullscreen
 3. You'll see the remote desktop, files drawer, and soft-keyboard button:
 
-   - **Remote desktop**: Pan and pinch to zoom; two-finger tap for right-click
-   - **Files drawer** (swipe left edge or tap ☰): Upload single/multiple files or download them as ZIP
-   - **Soft keyboard** (⌨ button): On-screen keyboard for text input
-   - **Voice dictation** (🎤 button): Speak to type at the remote cursor
-   - **Exit** (tap top-left X or back button): Close the session and return to host list
+   - **Remote desktop**: see the touch-gesture reference below
+   - **Files drawer** (tap **Remote files**): Upload single/multiple files or download them as ZIP
+   - **Soft keyboard** (⌨ in the tool tray): On-screen keyboard for text input
+   - **Voice dictation** (🎤 in the tool tray): Speak to type at the remote cursor
+   - **Exit** (tap **Disconnect** or the back button): Close the session and return to host list
+
+### Touch gestures
+
+The tool tray is the **⋯** floating button (bottom-right); tap it to reveal the tools.
+
+| Gesture | Action |
+|---|---|
+| 1-finger tap | Left click |
+| 1-finger drag | Left-button drag (select / move) |
+| **1-finger long-press (~1s)** | **Right-click** at that point |
+| 2-finger tap | Middle click |
+| 2-finger drag | Scroll (at fit) · **Pan the view** (when zoomed in) |
+| Pinch | Zoom — local magnify |
+| Tool tray **⊞ Right** | Right-click at the **screen center** |
+| Tool tray **✋ Drag** | Drag-lock: holds the left button down for a click-drag, tap again to release |
+| Tool tray **− / Fit / +** | Zoom out / reset to fit / zoom in |
+| Tool tray **⌨** | Show the soft keyboard |
+| Tool tray **🎤** | Voice dictation (opens the keyboard picker if a voice keyboard isn't active) |
+
+So the two that are easy to confuse: **right-click = one-finger long-press**, **pan = two-finger drag** (panning only does something once you've pinch-zoomed in).
 
 ### Voice dictation
 
