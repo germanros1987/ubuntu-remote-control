@@ -498,6 +498,28 @@ install_agent_deps() {
     tigervnc-common \
     tigervnc-tools
   require_screen_vnc_server
+  setup_x_maxclients
+}
+
+# Raise the X server's client limit. A busy desktop (Chrome, Slack, Electron
+# apps, …) plus the agent's screen-scraping connections can otherwise reach the
+# default MaxClients (~256), after which the X server refuses ALL new clients —
+# new app windows fail to open and VNC scraping can't connect. 2048 gives ample
+# headroom. Takes effect on the next X server start (logout/login or reboot).
+setup_x_maxclients() {
+  local dir=/etc/X11/xorg.conf.d
+  local f="$dir/99-urc-maxclients.conf"
+  mkdir -p "$dir"
+  if [[ ! -f "$f" ]] || ! grep -q 'MaxClients' "$f" 2>/dev/null; then
+    cat > "$f" <<'EOF'
+# Installed by Ubuntu Remote Control. Raises the X11 client limit so a busy
+# desktop plus VNC screen-scraping don't exhaust the default (~256) MaxClients.
+Section "ServerFlags"
+    Option "MaxClients" "2048"
+EndSection
+EOF
+    echo "==> Raised X MaxClients to 2048 ($f) — effective after next login/reboot"
+  fi
 }
 
 install_desktop_deps() {
