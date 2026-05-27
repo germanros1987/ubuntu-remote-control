@@ -1,10 +1,10 @@
 [Unit]
-Description=URC agent health check every 10 minutes
+Description=URC agent health check every 2 minutes
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=10min
-AccuracySec=1min
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
 Persistent=true
 
 [Install]

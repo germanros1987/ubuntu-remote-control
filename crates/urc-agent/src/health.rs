@@ -61,7 +61,10 @@ pub async fn probe_health(config: &AgentConfig) -> AgentStatus {
 
     let session_detected = crate::session::SessionDetector::detect(config.backend).is_ok();
     let vnc_port_open = tcp_open(5900).await;
-    let files_port_open = tcp_open(urc_common::DEFAULT_FILES_PORT).await;
+    // Liveness is the SERVING layer: the urc-web/files internal port. VNC being
+    // down must NOT make the agent unhealthy — the web UI (noVNC) keeps serving
+    // and reconnects to VNC on demand.
+    let files_port_open = tcp_open(urc_common::DEFAULT_WEB_INTERNAL_PORT).await;
 
     let needs_coordinator = !config.coordinator_url.trim().is_empty();
     let status_path = PathBuf::from(STATUS_PATH);
@@ -73,7 +76,7 @@ pub async fn probe_health(config: &AgentConfig) -> AgentStatus {
         false
     };
 
-    let healthy = session_detected && vnc_port_open && coordinator_connected;
+    let healthy = files_port_open && coordinator_connected;
 
     AgentStatus {
         healthy,
@@ -84,26 +87,23 @@ pub async fn probe_health(config: &AgentConfig) -> AgentStatus {
         backend: None,
         display: None,
         last_error: if healthy {
-            None
+            if vnc_port_open {
+                None
+            } else {
+                Some("vnc=down (serving unaffected)".to_string())
+            }
         } else {
-            Some(build_error_summary(
-                session_detected,
-                vnc_port_open,
-                coordinator_connected,
-            ))
+            Some(build_error_summary(files_port_open, coordinator_connected))
         },
         updated_at_unix: now,
         supervisor_cycle: 0,
     }
 }
 
-fn build_error_summary(session: bool, vnc: bool, coord: bool) -> String {
+fn build_error_summary(files: bool, coord: bool) -> String {
     let mut parts = Vec::new();
-    if !session {
-        parts.push("no graphical session");
-    }
-    if !vnc {
-        parts.push("VNC port closed");
+    if !files {
+        parts.push("web/files port closed");
     }
     if !coord {
         parts.push("coordinator disconnected");
