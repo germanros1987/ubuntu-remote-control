@@ -573,28 +573,32 @@ function onDragTouchMove(e) {
   }));
 }
 
-// Keyboard button — calls the native bridge when present; falls back to the
-// off-screen-focus trick (iOS needs the element briefly on-screen).
+// Summon the soft keyboard. Both Android (WebView InputConnection) and iOS
+// refuse to attach the IME to an element that is fully off-viewport / zero
+// opacity at the moment focus() is called, so we briefly position the textarea
+// on-screen, JS-focus it (gives the IME a real input target), then revert.
+// The native bridge's showSoftInput / startDictation runs AFTER this so the
+// IME raises against the now-focused field, not against the WebView with no
+// internal focus (which silently swallowed keystrokes).
+function summonKeyboard() {
+  kbdInputEl.style.top  = '50%';
+  kbdInputEl.style.left = '50%';
+  kbdInputEl.focus();
+  setTimeout(() => {
+    kbdInputEl.style.top  = '-200px';
+    kbdInputEl.style.left = '-200px';
+  }, 300);
+}
+
 $('tb-kbd').addEventListener('click', () => {
+  summonKeyboard();
   if (window.UrcNative) {
     window.UrcNative.showKeyboard();
-  } else {
-    kbdInputEl.focus();
-    // Briefly move onto screen for iOS — it refuses to show the keyboard for
-    // elements with zero/tiny bounding boxes.
-    kbdInputEl.style.top  = '50%';
-    kbdInputEl.style.left = '50%';
-    setTimeout(() => {
-      kbdInputEl.style.top  = '-200px';
-      kbdInputEl.style.left = '-200px';
-    }, 300);
   }
 });
 
-// Mic button — triggers voice dictation via the native bridge when available;
-// on desktop (no bridge) just focus the field so the user can type.
 $('tb-mic').addEventListener('click', () => {
-  kbdInputEl.focus();
+  summonKeyboard();
   if (window.UrcNative) {
     window.UrcNative.startDictation();
   }
