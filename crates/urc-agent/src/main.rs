@@ -20,11 +20,11 @@ use urc_common::AgentConfig;
 #[command(name = "urc-agent", about = "Ubuntu Remote Control agent")]
 struct Cli {
     /// Path to config file
-    #[arg(long, default_value = "/etc/urc/agent.toml")]
+    #[arg(long, default_value = "/etc/urc/agent.toml", global = true)]
     config: PathBuf,
 
     /// Run without TLS (LAN only)
-    #[arg(long)]
+    #[arg(long, global = true)]
     insecure: bool,
 
     /// Generate default config and exit
