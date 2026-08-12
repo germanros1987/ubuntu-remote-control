@@ -75,6 +75,17 @@ function startVNC() {
   rfb.addEventListener('connect', () => {
     reconnectAttempt = 0;
     setStatus(remoteHostname ? `connected (${remoteHostname})` : 'connected', 'ok');
+    // startVNC() just tore down the old canvas and RFB rebuilt a fresh one;
+    // noVNC's Keyboard.grab() binds keydown/keyup to THAT element, so keys
+    // only reach the remote once it has DOM focus. The browser drops focus to
+    // <body> when the old canvas is removed, so without this the user has to
+    // click the screen again after every reconnect before typing works.
+    // Only steal focus when nothing else is deliberately focused (e.g. the
+    // mobile IME textarea or a files-panel control), so we don't yank it away.
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      rfb.focus({ preventScroll: true });
+    }
   });
   rfb.addEventListener('disconnect', (e) => {
     const clean = e.detail && e.detail.clean;
