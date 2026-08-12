@@ -18,7 +18,7 @@ Configured in [`packaging/systemd/urc-agent.service`](../packaging/systemd/urc-a
 On install, these units are enabled:
 
 - `urc-agent.service` — main agent
-- `urc-agent-health.timer` — watchdog every **10 minutes** (first run 5 min after boot)
+- `urc-agent-health.timer` — watchdog every **2 minutes** (first run 2 min after boot)
 - `urc-agent-login.path` — `try-restart` agent when login sessions change
 
 Coordinator VPS uses the same pattern (`urc-coordinator.service` + `urc-coordinator-health.timer`).
@@ -43,7 +43,7 @@ systemctl is-active urc-agent   # start if down
 urc-agent health                # restart if unhealthy
 ```
 
-Equivalent to cron `*/10 * * * *` but integrated with journald (`journalctl -t urc-health`).
+Equivalent to cron `*/2 * * * *` but integrated with journald (`journalctl -t urc-health`).
 
 ## Commands
 
@@ -86,7 +86,7 @@ Ensure `/etc/urc/coordinator.env` contains `URC_SHARED_SECRET=your-token`.
 If you prefer cron over systemd timers:
 
 ```cron
-*/10 * * * * root /usr/libexec/urc/urc-health-check.sh
+*/2 * * * * root /usr/libexec/urc/urc-health-check.sh
 ```
 
 Disable the timer to avoid duplicate checks: `systemctl disable --now urc-agent-health.timer`.
