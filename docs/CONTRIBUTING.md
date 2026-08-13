@@ -21,6 +21,16 @@ false`), which blocks step 2/3 above. When that happens:
   merge pushed straight to `origin/main` has no PR, no reviewer, and no
   approval — it silently bypasses the review gate this workflow exists to
   enforce, no matter how well-documented the commit message is.
+- This ban is on the destination and the credential, not on one particular
+  transport. It applies just as much to pushing over SSH using an ambient
+  or agent-forwarded key that happens to have write access to `origin` —
+  because it's a human's key, a leftover agent socket, or another
+  identity's key already loaded on a shared machine — as it does to pushing
+  over HTTPS with a personal access token. **Do not** push to `main` (or
+  merge into it) as an identity other than the one assigned to you for this
+  task, regardless of how that identity's access reaches you. Being pull-only
+  under your own identity is not a problem to solve by pushing as someone
+  else's; it's the blocker described below.
 - **Do not** silently drop the work either.
 - Push what you can (a fork, if you have write access there, works — see
   cross-fork PRs below), leave the branch exactly as it is otherwise, and
