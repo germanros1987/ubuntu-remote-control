@@ -90,6 +90,10 @@ sudo ./install --role client -y   # on Mac (from repo checkout)
 
 Auto-restart on crash, boot, login, and health timers. See [docs/service-health.md](docs/service-health.md).
 
+## Contributing
+
+Branch and merge policy for this repo: see [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
 ## License
 
 [MIT](LICENSE) — application code. VNC backends are GPL system packages from Ubuntu.

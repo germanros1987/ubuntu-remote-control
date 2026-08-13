@@ -19,3 +19,4 @@ urc-files.workspace = true
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
+tokio-tungstenite.workspace = true

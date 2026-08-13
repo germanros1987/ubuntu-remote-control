@@ -74,7 +74,7 @@ else
   log "no session detected — skipping serving-port restart (15901=$([ "$web_tls_up" = true ] && echo up || echo down) 16080=$([ "$web_internal_up" = true ] && echo up || echo down))"
 fi
 
-if ! "$AGENT_BIN" health --config "$CONFIG"; then
+if ! "$AGENT_BIN" --config "$CONFIG" health; then
   restart_agent
   exit 1
 fi
