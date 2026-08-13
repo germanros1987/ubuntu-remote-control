@@ -50,9 +50,9 @@ impl RelayHub {
             if let Some(session) = sessions.get(&id) {
                 let mut s = session.lock().await;
                 if is_agent {
-                    s.agent_tx = Some(tx);
+                    s.agent_tx = Some(tx.clone());
                 } else {
-                    s.client_tx = Some(tx);
+                    s.client_tx = Some(tx.clone());
                 }
             }
         }
@@ -61,6 +61,23 @@ impl RelayHub {
         let forward = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 if sink.send(msg).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // A quiet VNC stream means zero relayed bytes on this leg; without
+        // something on the wire, a NAT/LB between here and the peer will
+        // silently drop the idle connection and the client "reconnects" for
+        // no reason a human caused. Both a browser and tungstenite auto-reply
+        // to a Ping with a Pong, so this alone keeps the hop warm.
+        let keepalive_tx = tx.clone();
+        let keepalive = tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(25));
+            tick.tick().await; // first tick is immediate; consume it
+            loop {
+                tick.tick().await;
+                if keepalive_tx.send(Message::Ping(Vec::new().into())).is_err() {
                     break;
                 }
             }
@@ -85,6 +102,7 @@ impl RelayHub {
         }
 
         forward.abort();
+        keepalive.abort();
         self.sessions.write().await.remove(&id);
     }
 }
