@@ -101,20 +101,13 @@ async fn handle_agent(socket: WebSocket, state: Arc<AppState>) {
                 token,
                 tailscale_ip,
                 vnc_local_port,
-                files_local_port,
             }) => {
                 if !state.verify_token(&token) {
                     return;
                 }
                 host_id = id.clone();
                 state
-                    .register_agent(
-                        id.clone(),
-                        tailscale_ip,
-                        vnc_local_port,
-                        files_local_port,
-                        control_tx.clone(),
-                    )
+                    .register_agent(id.clone(), tailscale_ip, vnc_local_port, control_tx.clone())
                     .await;
 
                 let ok = CoordinatorMessage::Registered { host_id: id };
