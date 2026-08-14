@@ -12,10 +12,6 @@ pub struct AgentRecord {
     pub host_id: String,
     pub tailscale_ip: Option<String>,
     pub vnc_local_port: u16,
-    // Set on registration but not yet surfaced anywhere (no files-transfer hint
-    // exists to mirror the vnc_local_port direct-connect hint). See follow-up task.
-    #[allow(dead_code)]
-    pub files_local_port: u16,
     pub last_seen: DateTime<Utc>,
     pub control_tx: mpsc::UnboundedSender<Message>,
 }
@@ -51,14 +47,12 @@ impl AppState {
         host_id: String,
         tailscale_ip: Option<String>,
         vnc_local_port: u16,
-        files_local_port: u16,
         control_tx: mpsc::UnboundedSender<Message>,
     ) {
         let record = AgentRecord {
             host_id: host_id.clone(),
             tailscale_ip,
             vnc_local_port,
-            files_local_port,
             last_seen: Utc::now(),
             control_tx,
         };

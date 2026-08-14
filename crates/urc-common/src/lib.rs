@@ -22,7 +22,6 @@ pub enum AgentMessage {
         token: String,
         tailscale_ip: Option<String>,
         vnc_local_port: u16,
-        files_local_port: u16,
     },
     Heartbeat {
         host_id: String,
