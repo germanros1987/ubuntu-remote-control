@@ -25,10 +25,7 @@ pub struct X11Backend {
 
 impl X11Backend {
     pub fn new(config: &AgentConfig, session: &SessionInfo) -> Result<Self> {
-        let display = session
-            .display
-            .clone()
-            .unwrap_or_else(|| ":0".to_string());
+        let display = session.display.clone().unwrap_or_else(|| ":0".to_string());
 
         let password_file = config
             .vnc_password_file
@@ -53,15 +50,9 @@ impl X11Backend {
     }
 
     fn resolved_xauthority(&self) -> Option<String> {
-        self.xauthority.as_ref().and_then(|p| {
-            if Path::new(p).exists() {
-                Some(p.clone())
-            } else if p.contains('*') {
-                None
-            } else {
-                None
-            }
-        })
+        self.xauthority
+            .as_ref()
+            .and_then(|p| Path::new(p).exists().then(|| p.clone()))
     }
 
     async fn stop_stale_vnc(&self) {

@@ -300,8 +300,8 @@ async fn vnc_supervisor_loop(
             Err(e) => {
                 vnc_health.store(false, Ordering::Relaxed);
                 let msg = e.to_string();
-                let saturated = msg.contains("saturated")
-                    || msg.contains("Maximum number of clients reached");
+                let saturated =
+                    msg.contains("saturated") || msg.contains("Maximum number of clients reached");
                 // Reap stale VNC procs so the display can drain (start() already
                 // reaps, but ensure it after a failure too).
                 backend.stop().await;

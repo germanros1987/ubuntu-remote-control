@@ -1,10 +1,10 @@
 //! Coordinator application state.
 
+use axum::extract::ws::Message;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use axum::extract::ws::Message;
 use tokio::sync::{mpsc, RwLock};
 
 #[derive(Clone, Debug)]
@@ -12,6 +12,9 @@ pub struct AgentRecord {
     pub host_id: String,
     pub tailscale_ip: Option<String>,
     pub vnc_local_port: u16,
+    // Set on registration but not yet surfaced anywhere (no files-transfer hint
+    // exists to mirror the vnc_local_port direct-connect hint). See follow-up task.
+    #[allow(dead_code)]
     pub files_local_port: u16,
     pub last_seen: DateTime<Utc>,
     pub control_tx: mpsc::UnboundedSender<Message>,
