@@ -90,7 +90,6 @@ impl CoordinatorClient {
             token,
             tailscale_ip,
             vnc_local_port: self.vnc_port,
-            files_local_port: urc_common::DEFAULT_FILES_PORT,
         };
 
         let (mut write, mut read) = ws.split();
@@ -119,7 +118,6 @@ impl CoordinatorClient {
                         if let AgentMessage::TunnelReady { session_id, target } = agent_msg {
                             let port = match target {
                                 TunnelTarget::Vnc => vnc_port,
-                                TunnelTarget::Files => urc_common::DEFAULT_FILES_PORT,
                             };
                             let tunnels_cleanup = tunnels.clone();
                             let handle = tokio::spawn(async move {

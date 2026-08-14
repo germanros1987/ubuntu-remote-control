@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 pub const DEFAULT_COORDINATOR_PORT: u16 = 21150;
 pub const DEFAULT_RELAY_VNC_PORT: u16 = 15900;
-pub const DEFAULT_FILES_PORT: u16 = 15901;
 pub const DEFAULT_TLS_LISTEN_PORT: u16 = 15900;
 /// External TLS port for the unified web UI (noVNC + files + future panels).
 pub const DEFAULT_WEB_TLS_PORT: u16 = 15901;
@@ -22,7 +21,6 @@ pub enum AgentMessage {
         token: String,
         tailscale_ip: Option<String>,
         vnc_local_port: u16,
-        files_local_port: u16,
     },
     Heartbeat { host_id: String },
     TunnelReady {
@@ -45,7 +43,6 @@ pub enum AgentMessage {
 #[serde(rename_all = "snake_case")]
 pub enum TunnelTarget {
     Vnc,
-    Files,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
