@@ -15,8 +15,10 @@ pub fn load_config(path: &Path) -> Result<AgentConfig> {
         return Ok(cfg);
     }
 
-    let mut cfg = AgentConfig::default();
-    cfg.host_id = Some(hostname_id());
+    let cfg = AgentConfig {
+        host_id: Some(hostname_id()),
+        ..Default::default()
+    };
     Ok(cfg)
 }
 

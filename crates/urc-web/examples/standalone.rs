@@ -14,14 +14,8 @@ async fn main() -> anyhow::Result<()> {
         .next()
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    let vnc_port: u16 = args
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(5900);
-    let port: u16 = args
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(18080);
+    let vnc_port: u16 = args.next().and_then(|s| s.parse().ok()).unwrap_or(5900);
+    let port: u16 = args.next().and_then(|s| s.parse().ok()).unwrap_or(18080);
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
     let desktop = urc_web::DesktopSession {
         username: std::env::var("USER").unwrap_or_else(|_| "nobody".into()),

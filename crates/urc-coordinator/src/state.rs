@@ -1,10 +1,10 @@
 //! Coordinator application state.
 
+use axum::extract::ws::Message;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use axum::extract::ws::Message;
 use tokio::sync::{mpsc, RwLock};
 
 #[derive(Clone, Debug)]

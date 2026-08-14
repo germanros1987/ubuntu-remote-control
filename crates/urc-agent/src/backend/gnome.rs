@@ -21,9 +21,7 @@ pub struct GnomeBackend {
 impl GnomeBackend {
     pub fn new(config: &AgentConfig, session: &SessionInfo) -> Result<Self> {
         if which_grdctl().is_none() {
-            bail!(
-                "grdctl not found. Install: apt install gnome-remote-desktop"
-            );
+            bail!("grdctl not found. Install: apt install gnome-remote-desktop");
         }
 
         Ok(Self {
@@ -35,7 +33,11 @@ impl GnomeBackend {
     async fn configure_grd(&self) -> Result<()> {
         let password = read_vnc_password(&self.password_file)?;
 
-        run_as_user(&self.username, &["grdctl", "vnc", "set-auth-method", "password"]).await?;
+        run_as_user(
+            &self.username,
+            &["grdctl", "vnc", "set-auth-method", "password"],
+        )
+        .await?;
         run_as_user(
             &self.username,
             &["grdctl", "vnc", "set-password", &password],

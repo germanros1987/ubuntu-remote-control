@@ -76,11 +76,7 @@ pub fn files_router(root: PathBuf) -> Router {
 
 /// Stand-alone bind — kept as a convenience for tests; production wires the router
 /// directly into urc-web on the unified port.
-pub async fn spawn_files_server(
-    root: PathBuf,
-    bind: &str,
-    port: u16,
-) -> Result<JoinHandle<()>> {
+pub async fn spawn_files_server(root: PathBuf, bind: &str, port: u16) -> Result<JoinHandle<()>> {
     let app = Router::new().nest("/api", files_router(root));
     let addr = format!("{bind}:{port}");
     let listener = TcpListener::bind(&addr).await?;
@@ -121,10 +117,7 @@ async fn list_dir(
     list_path(&state, &path).await
 }
 
-async fn list_path(
-    state: &FilesState,
-    rel: &str,
-) -> Result<Json<Vec<ListEntry>>, StatusCode> {
+async fn list_path(state: &FilesState, rel: &str) -> Result<Json<Vec<ListEntry>>, StatusCode> {
     let dir = safe_path(&state.root, rel)?;
     if !dir.is_dir() {
         return Err(StatusCode::NOT_FOUND);
@@ -148,7 +141,9 @@ async fn list_path(
             size: meta.len(),
         });
     }
-    entries.sort_by(|a, b| (!a.is_dir, a.name.to_lowercase()).cmp(&(!b.is_dir, b.name.to_lowercase())));
+    entries.sort_by(|a, b| {
+        (!a.is_dir, a.name.to_lowercase()).cmp(&(!b.is_dir, b.name.to_lowercase()))
+    });
     Ok(Json(entries))
 }
 
@@ -166,9 +161,7 @@ async fn download_file(
     Ok(data)
 }
 
-async fn download_zip_root(
-    State(state): State<Arc<FilesState>>,
-) -> Result<Response, StatusCode> {
+async fn download_zip_root(State(state): State<Arc<FilesState>>) -> Result<Response, StatusCode> {
     build_zip_response(&state.root, "remote-root".to_string()).await
 }
 
@@ -250,22 +243,19 @@ async fn upload_file(
     mut multipart: Multipart,
 ) -> Result<StatusCode, StatusCode> {
     let dest = safe_path(&state.root, &path)?;
-    while let Some(field) = multipart
+    let Some(field) = multipart
         .next_field()
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?
-    {
-        let data = field
-            .bytes()
-            .await
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
-        if let Some(parent) = dest.parent() {
-            tokio::fs::create_dir_all(parent).await.ok();
-        }
-        tokio::fs::write(&dest, &data)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        return Ok(StatusCode::CREATED);
+    else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await.ok();
     }
-    Err(StatusCode::BAD_REQUEST)
+    tokio::fs::write(&dest, &data)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::CREATED)
 }

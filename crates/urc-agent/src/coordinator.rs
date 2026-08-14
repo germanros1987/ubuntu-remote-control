@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, info, warn};
-use urc_common::{parse_ws_message, to_ws_message, AgentMessage, AgentConfig, TunnelTarget};
+use urc_common::{parse_ws_message, to_ws_message, AgentConfig, AgentMessage, TunnelTarget};
 use uuid::Uuid;
 
 pub struct CoordinatorClient {
@@ -114,20 +114,20 @@ impl CoordinatorClient {
                         self.connected.store(false, Ordering::Relaxed);
                         anyhow::bail!("coordinator connection closed");
                     };
-                    if let Ok(agent_msg) = parse_ws_message::<AgentMessage>(&text) {
-                        if let AgentMessage::TunnelReady { session_id, target } = agent_msg {
-                            let port = match target {
-                                TunnelTarget::Vnc => vnc_port,
-                            };
-                            let tunnels_cleanup = tunnels.clone();
-                            let handle = tokio::spawn(async move {
-                                if let Err(e) = run_tunnel_session(session_id, port).await {
-                                    debug!(error = %e, %session_id, "tunnel ended");
-                                }
-                                tunnels_cleanup.lock().await.remove(&session_id);
-                            });
-                            tunnels.lock().await.insert(session_id, handle);
-                        }
+                    if let Ok(AgentMessage::TunnelReady { session_id, target }) =
+                        parse_ws_message::<AgentMessage>(&text)
+                    {
+                        let port = match target {
+                            TunnelTarget::Vnc => vnc_port,
+                        };
+                        let tunnels_cleanup = tunnels.clone();
+                        let handle = tokio::spawn(async move {
+                            if let Err(e) = run_tunnel_session(session_id, port).await {
+                                debug!(error = %e, %session_id, "tunnel ended");
+                            }
+                            tunnels_cleanup.lock().await.remove(&session_id);
+                        });
+                        tunnels.lock().await.insert(session_id, handle);
                     }
                 }
             }
@@ -143,9 +143,7 @@ async fn run_tunnel_session(session_id: Uuid, local_port: u16) -> Result<()> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(urc_common::DEFAULT_COORDINATOR_PORT);
 
-    let url = format!(
-        "ws://{coordinator_host}:{coordinator_port}/tunnel/agent/{session_id}"
-    );
+    let url = format!("ws://{coordinator_host}:{coordinator_port}/tunnel/agent/{session_id}");
     let (ws, _) = connect_async(&url).await.context("tunnel websocket")?;
     let local = TcpStream::connect(("127.0.0.1", local_port)).await?;
 

@@ -13,8 +13,6 @@ use tracing::info;
 use crate::session::{BackendKind, SessionInfo};
 use urc_common::AgentConfig;
 
-pub use x11::X11Backend;
-
 #[async_trait::async_trait]
 pub trait VncBackend: Send + Sync {
     fn local_port(&self) -> u16;
