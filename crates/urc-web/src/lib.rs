@@ -248,6 +248,14 @@ async fn vnc_ws_handler(ws: WebSocketUpgrade, vnc_port: u16) -> impl IntoRespons
         })
 }
 
+/// How often to ping the browser when the VNC stream is otherwise silent. A
+/// static desktop sends zero framebuffer updates, so without this the WS (and
+/// the TLS tunnel/NAT path it rides on) goes fully idle and gets dropped by a
+/// middlebox — the client then "reconnects" for no reason a human did.
+/// Browsers reply to a server Ping with a Pong automatically, so sending one
+/// is enough to keep every hop between here and the client warm.
+const WS_KEEPALIVE_SECS: u64 = 25;
+
 async fn bridge_vnc(socket: axum::extract::ws::WebSocket, vnc_port: u16) -> Result<()> {
     let tcp = TcpStream::connect(("127.0.0.1", vnc_port)).await?;
     let (mut tcp_r, mut tcp_w) = tcp.into_split();
@@ -271,15 +279,27 @@ async fn bridge_vnc(socket: axum::extract::ws::WebSocket, vnc_port: u16) -> Resu
 
     let from_vnc = async {
         let mut buf = vec![0u8; 16 * 1024];
+        let mut keepalive =
+            tokio::time::interval(std::time::Duration::from_secs(WS_KEEPALIVE_SECS));
+        keepalive.tick().await; // first tick is immediate; consume it
         loop {
-            match tcp_r.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    if ws_tx
-                        .send(Message::Binary(buf[..n].to_vec().into()))
-                        .await
-                        .is_err()
-                    {
+            tokio::select! {
+                result = tcp_r.read(&mut buf) => {
+                    match result {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            if ws_tx
+                                .send(Message::Binary(buf[..n].to_vec().into()))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ = keepalive.tick() => {
+                    if ws_tx.send(Message::Ping(Vec::new().into())).await.is_err() {
                         break;
                     }
                 }
