@@ -18,9 +18,7 @@ pub struct SessionInfo {
     pub display: Option<String>,
     pub wayland_display: Option<String>,
     pub xauthority: Option<String>,
-    pub uid: u32,
     pub username: String,
-    pub desktop: Option<String>,
 }
 
 pub struct SessionDetector;
@@ -167,9 +165,7 @@ impl SessionDetector {
                     display
                 },
                 xauthority,
-                uid,
                 username,
-                desktop,
             });
         }
 
@@ -199,9 +195,7 @@ impl SessionDetector {
                 display: None,
                 wayland_display: wayland,
                 xauthority: std::env::var("XAUTHORITY").ok(),
-                uid,
                 username,
-                desktop,
             }
         } else if display.is_some() {
             SessionInfo {
@@ -209,9 +203,7 @@ impl SessionDetector {
                 display,
                 wayland_display: None,
                 xauthority: std::env::var("XAUTHORITY").ok(),
-                uid,
-                username: username.clone(),
-                desktop: detect_desktop(&username),
+                username,
             }
         } else {
             bail!("no DISPLAY or WAYLAND_DISPLAY and loginctl found no session")
