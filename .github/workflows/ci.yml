@@ -20,25 +20,37 @@ jobs:
             target: linux-x86_64
             cmd: cargo build --release
             test_cmd: cargo test --release
+            clippy_cmd: cargo clippy --workspace --all-targets --release -- -D warnings
           - runner: ubuntu-24.04-arm
             target: linux-aarch64
             cmd: cargo build --release
             test_cmd: cargo test --release
+            clippy_cmd: cargo clippy --workspace --all-targets --release -- -D warnings
           - runner: macos-14
             target: darwin-aarch64
             cmd: cargo build --release -p urc-client
             test_cmd: cargo test --release -p urc-client
+            clippy_cmd: cargo clippy -p urc-client --all-targets --release -- -D warnings
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Build
         run: ${{ matrix.cmd }}
 
       - name: Test
         run: ${{ matrix.test_cmd }}
+
+      - name: Clippy
+        run: ${{ matrix.clippy_cmd }}
+
+      - name: Check formatting
+        if: matrix.target == 'linux-x86_64'
+        run: cargo fmt --all -- --check
 
       - name: Verify install scripts
         run: |

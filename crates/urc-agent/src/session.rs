@@ -31,7 +31,7 @@ impl SessionDetector {
         Self::from_env(preference)
     }
 
-    fn apply_preference(mut info: SessionInfo, preference: BackendPreference) -> Result<SessionInfo> {
+    fn apply_preference(info: SessionInfo, preference: BackendPreference) -> Result<SessionInfo> {
         match preference {
             BackendPreference::Auto => Ok(info),
             BackendPreference::X11 => {
@@ -82,7 +82,18 @@ impl SessionDetector {
             }
 
             let show = Command::new("loginctl")
-                .args(["show-session", session_id, "-p", "Type", "-p", "Display", "-p", "Name", "-p", "Active"])
+                .args([
+                    "show-session",
+                    session_id,
+                    "-p",
+                    "Type",
+                    "-p",
+                    "Display",
+                    "-p",
+                    "Name",
+                    "-p",
+                    "Active",
+                ])
                 .output()?;
 
             if !show.status.success() {
@@ -137,7 +148,9 @@ impl SessionDetector {
                 "x11" => BackendKind::X11,
                 "wayland" => match desktop.as_deref() {
                     Some("gnome") | Some("ubuntu") => BackendKind::GnomeWayland,
-                    Some("sway") | Some("hyprland") | Some("wayfire") => BackendKind::WlrootsWayland,
+                    Some("sway") | Some("hyprland") | Some("wayfire") => {
+                        BackendKind::WlrootsWayland
+                    }
                     _ => {
                         if desktop.is_some() {
                             bail!(
@@ -160,7 +173,7 @@ impl SessionDetector {
                 backend_kind,
                 display: display.clone(),
                 wayland_display: if session_type == "wayland" {
-                    Some(format!("wayland-0"))
+                    Some("wayland-0".to_string())
                 } else {
                     display
                 },
@@ -275,9 +288,7 @@ fn user_display_env(username: &str) -> Option<String> {
 }
 
 fn users_uid() -> Option<u32> {
-    std::env::var("UID")
-        .ok()
-        .and_then(|s| s.parse().ok())
+    std::env::var("UID").ok().and_then(|s| s.parse().ok())
 }
 
 fn resolve_xauthority(uid: u32) -> Option<String> {
@@ -313,10 +324,19 @@ fn glob_xauthority(pattern: &str) -> Option<String> {
 
 fn detect_desktop(username: &str) -> Option<String> {
     let output = Command::new("runuser")
-        .args(["-u", username, "--", "bash", "-lc", "echo $XDG_CURRENT_DESKTOP"])
+        .args([
+            "-u",
+            username,
+            "--",
+            "bash",
+            "-lc",
+            "echo $XDG_CURRENT_DESKTOP",
+        ])
         .output()
         .ok()?;
-    let s = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+    let s = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_lowercase();
     if s.is_empty() {
         return None;
     }

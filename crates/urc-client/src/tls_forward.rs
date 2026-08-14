@@ -144,17 +144,20 @@ pub async fn preflight_remote_vnc(remote_host: &str, remote_port: u16) -> Result
     let connector = tls_connector()?;
     let server_name = tls_server_name(remote_host)?;
 
-    let stream = timeout(Duration::from_secs(12), TcpStream::connect((remote_host, remote_port)))
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "timeout connecting to {remote_host}:{remote_port}\n\
+    let stream = timeout(
+        Duration::from_secs(12),
+        TcpStream::connect((remote_host, remote_port)),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "timeout connecting to {remote_host}:{remote_port}\n\
                  • Is the PC online on Tailscale?\n\
                  • Is urc-agent running? (on the PC: sudo systemctl status urc-agent)\n\
                  • Is someone logged into the desktop? (VNC starts after login)"
-            )
-        })?
-        .with_context(|| format!("connect to {remote_host}:{remote_port}"))?;
+        )
+    })?
+    .with_context(|| format!("connect to {remote_host}:{remote_port}"))?;
 
     let mut tls = timeout(
         Duration::from_secs(12),
@@ -219,14 +222,12 @@ pub async fn probe_local_vnc(local_port: u16) -> Result<()> {
 }
 
 /// Listen on 127.0.0.1:`local_port` and forward to `remote_host`:`remote_port` over TLS.
-pub async fn spawn_tls_forward(
-    remote_host: &str,
-    remote_port: u16,
-    local_port: u16,
-) -> Result<()> {
+pub async fn spawn_tls_forward(remote_host: &str, remote_port: u16, local_port: u16) -> Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .await
-        .with_context(|| format!("bind local port {local_port} (is another urc connect still running?)"))?;
+        .with_context(|| {
+            format!("bind local port {local_port} (is another urc connect still running?)")
+        })?;
     let remote_host = remote_host.to_string();
     let connector = tls_connector()?;
 
@@ -259,7 +260,7 @@ async fn pipe_session(
     let remote = TcpStream::connect((remote_host, remote_port))
         .await
         .with_context(|| format!("connect to {remote_host}:{remote_port}"))?;
-    let mut tls = connector
+    let tls = connector
         .connect(server_name, remote)
         .await
         .with_context(|| format!("TLS to {remote_host}:{remote_port}"))?;

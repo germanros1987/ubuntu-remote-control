@@ -22,7 +22,9 @@ pub enum AgentMessage {
         tailscale_ip: Option<String>,
         vnc_local_port: u16,
     },
-    Heartbeat { host_id: String },
+    Heartbeat {
+        host_id: String,
+    },
     TunnelReady {
         session_id: Uuid,
         target: TunnelTarget,
@@ -48,29 +50,30 @@ pub enum TunnelTarget {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    Connect {
-        host_id: String,
-        token: String,
-    },
-    Disconnect {
-        session_id: Uuid,
-    },
+    Connect { host_id: String, token: String },
+    Disconnect { session_id: Uuid },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CoordinatorMessage {
-    Registered { host_id: String },
+    Registered {
+        host_id: String,
+    },
     ConnectOk {
         session_id: Uuid,
         relay_mode: RelayMode,
     },
-    ConnectErr { reason: String },
+    ConnectErr {
+        reason: String,
+    },
     RelayHint {
         session_id: Uuid,
         coordinator_addr: String,
     },
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

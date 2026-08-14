@@ -93,11 +93,7 @@ impl TlsTunnel {
     }
 }
 
-async fn pipe_tls_client(
-    client: TcpStream,
-    acceptor: TlsAcceptor,
-    local_port: u16,
-) -> Result<()> {
+async fn pipe_tls_client(client: TcpStream, acceptor: TlsAcceptor, local_port: u16) -> Result<()> {
     let tls = acceptor.accept(client).await?;
     let upstream = TcpStream::connect(("127.0.0.1", local_port)).await?;
 

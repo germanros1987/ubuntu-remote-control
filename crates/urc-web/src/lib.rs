@@ -58,18 +58,17 @@ pub fn web_router(files_root: PathBuf, vnc_port: u16, desktop: DesktopSession) -
 
     let clipboard_user_post = desktop.clone();
     let clipboard_user_get = desktop.clone();
-    let clipboard_route = Router::new()
-        .route(
-            "/api/clipboard",
-            post(move |body: String| {
-                let d = clipboard_user_post.clone();
-                async move { set_clipboard_handler(d, body).await }
-            })
-            .get(move || {
-                let d = clipboard_user_get.clone();
-                async move { get_clipboard_handler(d).await }
-            }),
-        );
+    let clipboard_route = Router::new().route(
+        "/api/clipboard",
+        post(move |body: String| {
+            let d = clipboard_user_post.clone();
+            async move { set_clipboard_handler(d, body).await }
+        })
+        .get(move || {
+            let d = clipboard_user_get.clone();
+            async move { get_clipboard_handler(d).await }
+        }),
+    );
 
     Router::new()
         .route("/", get(serve_index))
@@ -203,7 +202,9 @@ async fn run_xclip(desktop: &DesktopSession, selection: &str, text: &str) -> Res
     // wait_with_output would hang because the daemonized child inherits the
     // stderr pipe and never closes it. Set both stdout/stderr to null and use
     // `child.wait()` so we sync only on the parent's exit.
-    cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     let mut child = cmd.spawn()?;
     if let Some(mut stdin) = child.stdin.take() {

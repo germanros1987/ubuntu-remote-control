@@ -97,7 +97,7 @@ async fn list_hosts() -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<24} {:<16} {}", "NAME", "TAILSCALE IP", "STATUS");
+    println!("{:<24} {:<16} STATUS", "NAME", "TAILSCALE IP");
     for p in &peers {
         let status = if p.online { "online" } else { "offline" };
         println!("{:<24} {:<16} {}", p.name, p.ipv4, status);
@@ -157,9 +157,7 @@ async fn connect_host(
         // Parent already wrote the session file with our PID + URL and printed
         // the user-facing summary. Just block until SIGTERM and clean up.
         let host_for_cleanup = peer.name.clone();
-        tokio::signal::ctrl_c()
-            .await
-            .context("wait for SIGTERM")?;
+        tokio::signal::ctrl_c().await.context("wait for SIGTERM")?;
         let _ = sessions::remove(&host_for_cleanup);
         return Ok(());
     }

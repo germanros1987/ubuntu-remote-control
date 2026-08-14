@@ -21,8 +21,8 @@ use tokio::sync::mpsc;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use urc_common::{
-    parse_ws_message, to_ws_message, AgentMessage, ClientMessage, CoordinatorMessage,
-    RelayMode, TunnelTarget,
+    parse_ws_message, to_ws_message, AgentMessage, ClientMessage, CoordinatorMessage, RelayMode,
+    TunnelTarget,
 };
 use uuid::Uuid;
 
@@ -135,7 +135,9 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
                 let err = CoordinatorMessage::ConnectErr {
                     reason: "invalid token".into(),
                 };
-                let _ = sink.send(Message::Text(to_ws_message(&err).unwrap().into())).await;
+                let _ = sink
+                    .send(Message::Text(to_ws_message(&err).unwrap().into()))
+                    .await;
                 continue;
             }
 
@@ -143,7 +145,9 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
                 let err = CoordinatorMessage::ConnectErr {
                     reason: format!("host '{host_id}' not online"),
                 };
-                let _ = sink.send(Message::Text(to_ws_message(&err).unwrap().into())).await;
+                let _ = sink
+                    .send(Message::Text(to_ws_message(&err).unwrap().into()))
+                    .await;
                 continue;
             };
 
@@ -169,7 +173,9 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
                 session_id,
                 relay_mode,
             };
-            let _ = sink.send(Message::Text(to_ws_message(&ok).unwrap().into())).await;
+            let _ = sink
+                .send(Message::Text(to_ws_message(&ok).unwrap().into()))
+                .await;
 
             if let Some(ts_ip) = agent.tailscale_ip {
                 let hint = format!(
@@ -177,7 +183,7 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
                     agent.vnc_local_port,
                     urc_common::DEFAULT_TLS_LISTEN_PORT
                 );
-                let _ = sink.send(Message::Text(hint.into()));
+                let _ = sink.send(Message::Text(hint.into())).await;
             } else {
                 let hint = CoordinatorMessage::RelayHint {
                     session_id,
@@ -186,7 +192,9 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
                         urc_common::DEFAULT_COORDINATOR_PORT
                     ),
                 };
-                let _ = sink.send(Message::Text(to_ws_message(&hint).unwrap().into())).await;
+                let _ = sink
+                    .send(Message::Text(to_ws_message(&hint).unwrap().into()))
+                    .await;
             }
         }
     }

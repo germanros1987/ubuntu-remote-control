@@ -23,9 +23,7 @@ pub struct Session {
 pub fn sessions_dir() -> Result<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
         .context("HOME not set")?;
     let dir = base.join("urc").join("sessions");
     fs::create_dir_all(&dir).ok();

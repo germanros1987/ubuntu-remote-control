@@ -69,9 +69,7 @@ fn normalize_tailscale_exec(path: &Path) -> PathBuf {
             let resolved = if target.is_absolute() {
                 target
             } else {
-                path.parent()
-                    .unwrap_or_else(|| Path::new("/"))
-                    .join(target)
+                path.parent().unwrap_or_else(|| Path::new("/")).join(target)
             };
             if resolved.is_file() {
                 return resolved;
@@ -85,6 +83,7 @@ fn normalize_tailscale_exec(path: &Path) -> PathBuf {
 }
 
 fn default_candidates() -> Vec<PathBuf> {
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut out: Vec<PathBuf> = vec![
         PathBuf::from("/usr/local/bin/tailscale"),
         PathBuf::from("/opt/homebrew/bin/tailscale"),
@@ -190,9 +189,7 @@ pub fn ensure_local_running(json: &Value) -> Result<()> {
         "Starting" => "Tailscale is still connecting — retry in a few seconds.",
         _ => "Run: tailscale up",
     };
-    anyhow::bail!(
-        "Tailscale is not connected on this machine (BackendState={state}).\n{hint}"
-    )
+    anyhow::bail!("Tailscale is not connected on this machine (BackendState={state}).\n{hint}")
 }
 
 /// All remote peers in the tailnet (excludes this machine).
