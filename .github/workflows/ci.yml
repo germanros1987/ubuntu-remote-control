@@ -19,12 +19,15 @@ jobs:
           - runner: ubuntu-24.04
             target: linux-x86_64
             cmd: cargo build --release
+            test_cmd: cargo test --release
           - runner: ubuntu-24.04-arm
             target: linux-aarch64
             cmd: cargo build --release
+            test_cmd: cargo test --release
           - runner: macos-14
             target: darwin-aarch64
             cmd: cargo build --release -p urc-client
+            test_cmd: cargo test --release -p urc-client
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +36,9 @@ jobs:
 
       - name: Build
         run: ${{ matrix.cmd }}
+
+      - name: Test
+        run: ${{ matrix.test_cmd }}
 
       - name: Verify install scripts
         run: |
