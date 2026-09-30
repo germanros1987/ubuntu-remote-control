@@ -45,6 +45,16 @@ jobs:
       - name: Test
         run: ${{ matrix.test_cmd }}
 
+      - name: Browser keyboard repeat regression
+        run: node --experimental-vm-modules --test tests/keyboard-repeat.mjs
+
+      - name: X11 keyboard repeat regression
+        if: matrix.target == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tigervnc-standalone-server x11-xserver-utils libxtst6
+          python3 tests/x11-key-repeat.py target/release/urc-agent
+
       - name: Clippy
         run: ${{ matrix.clippy_cmd }}
 

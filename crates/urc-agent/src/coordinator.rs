@@ -146,6 +146,7 @@ async fn run_tunnel_session(session_id: Uuid, local_port: u16) -> Result<()> {
     let url = format!("ws://{coordinator_host}:{coordinator_port}/tunnel/agent/{session_id}");
     let (ws, _) = connect_async(&url).await.context("tunnel websocket")?;
     let local = TcpStream::connect(("127.0.0.1", local_port)).await?;
+    local.set_nodelay(true)?;
 
     let (mut ws_sink, mut ws_source) = ws.split();
     let (mut local_read, mut local_write) = local.into_split();
@@ -182,6 +183,10 @@ async fn run_tunnel_session(session_id: Uuid, local_port: u16) -> Result<()> {
         Ok::<(), anyhow::Error>(())
     };
 
-    tokio::try_join!(ws_to_local, local_to_ws)?;
+    // End both halves when either peer disconnects, releasing VNC's held keys.
+    tokio::select! {
+        result = ws_to_local => result?,
+        result = local_to_ws => result?,
+    }
     Ok(())
 }

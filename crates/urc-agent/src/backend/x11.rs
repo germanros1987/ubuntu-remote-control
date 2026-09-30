@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use std::os::unix::fs::{chown, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
@@ -21,6 +21,8 @@ pub struct X11Backend {
     xauthority: Option<String>,
     password_file: PathBuf,
     child: tokio::sync::Mutex<Option<Child>>,
+    server_key_repeat: bool,
+    repeat_guard: tokio::sync::Mutex<Option<Child>>,
 }
 
 impl X11Backend {
@@ -46,6 +48,8 @@ impl X11Backend {
             xauthority: session.xauthority.clone(),
             password_file,
             child: tokio::sync::Mutex::new(None),
+            server_key_repeat: config.x11_server_key_repeat,
+            repeat_guard: tokio::sync::Mutex::new(None),
         })
     }
 
@@ -53,6 +57,38 @@ impl X11Backend {
         self.xauthority
             .as_ref()
             .and_then(|p| Path::new(p).exists().then(|| p.clone()))
+    }
+
+    async fn start_repeat_guard(&self) -> Result<()> {
+        if self.server_key_repeat {
+            return Ok(());
+        }
+        let mut cmd = Command::new("runuser");
+        cmd.args(["-u", &self.username, "--", "env"]);
+        cmd.arg(format!("DISPLAY={}", self.display));
+        if let Some(xauth) = self.resolved_xauthority() {
+            cmd.arg(format!("XAUTHORITY={xauth}"));
+        }
+        cmd.arg(std::env::current_exe()?).arg("x11-repeat-guard");
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit());
+        let mut child = cmd.spawn().context("spawn X11 keyboard repeat guard")?;
+        let stdout = child.stdout.take().context("repeat guard stdout")?;
+        // Retain the child before waiting so failure cleanup closes its stdin.
+        *self.repeat_guard.lock().await = Some(child);
+        let mut ready = String::new();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            BufReader::new(stdout).read_line(&mut ready),
+        )
+        .await
+        .context("keyboard repeat guard startup timed out")??;
+        if ready.trim() != "ready" {
+            bail!("keyboard repeat guard failed to start");
+        }
+        info!("X11 server key repeat suppressed while sharing (x11_server_key_repeat=false)");
+        Ok(())
     }
 
     async fn stop_stale_vnc(&self) {
@@ -209,6 +245,7 @@ impl VncBackend for X11Backend {
         self.stop_stale_vnc().await;
         self.display_accessible().await?;
         let password_file = self.ensure_password_file().await?;
+        self.start_repeat_guard().await?;
 
         let mut cmd = Command::new("runuser");
         cmd.args(["-u", &self.username, "--", "env"]);
@@ -293,11 +330,22 @@ impl VncBackend for X11Backend {
     async fn stop(&self) -> Result<()> {
         if let Some(mut child) = self.child.lock().await.take() {
             child.kill().await.ok();
+            let _ = child.wait().await;
+        }
+        if let Some(mut guard) = self.repeat_guard.lock().await.take() {
+            // EOF restores the original XKB setting and lets runuser reap the helper.
+            drop(guard.stdin.take());
+            let _ = tokio::time::timeout(Duration::from_secs(5), guard.wait()).await;
         }
         Ok(())
     }
 
     async fn health_check(&self) -> Result<bool> {
+        if let Some(guard) = self.repeat_guard.lock().await.as_mut() {
+            if guard.try_wait()?.is_some() {
+                return Ok(false);
+            }
+        }
         Ok(tokio::net::TcpStream::connect(("127.0.0.1", LOCAL_PORT))
             .await
             .is_ok())

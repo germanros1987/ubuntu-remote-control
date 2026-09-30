@@ -60,6 +60,22 @@ curl -fsSL https://github.com/germanros1987/ubuntu-remote-control/releases/lates
 
 ---
 
+## Repeated characters on slow connections
+
+On X11 hosts, URC suppresses Ubuntu-generated key repeat while desktop sharing
+runs, so delayed key releases do not turn one press into many characters. Update
+**each Ubuntu agent** to receive this fix; updating clients also reduces tunnel
+latency. The web viewer preserves intentional held-key repeats.
+
+This also disables hold-to-repeat on the host's physical keyboard. Native viewers
+that send repeated key-down events without releases may lose held-key repeat.
+To keep the host's repeat behavior, add `x11_server_key_repeat = true` at the top
+level of `/etc/urc/agent.toml` (before `[tailscale]`) and restart `urc-agent`.
+That opts out of duplicate-key protection. The prior repeat setting is restored
+when the X11 backend stops. Wayland backends are unaffected by this setting.
+
+See [verification and local update instructions](docs/verification/network-key-repeat.md).
+
 ## Non-interactive / Tailscale auth key
 
 ```bash
