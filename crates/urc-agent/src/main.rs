@@ -39,6 +39,9 @@ struct Cli {
 enum Command {
     /// Run the agent supervisor (default for systemd)
     Run,
+    /// Internal helper: preserve and suppress X11 server-generated key repeats
+    #[command(hide = true)]
+    X11RepeatGuard,
     /// Exit 0 if healthy (for watchdog scripts)
     Health,
     /// Print JSON status
@@ -63,6 +66,10 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    if matches!(cli.command, Some(Command::X11RepeatGuard)) {
+        return backend::repeat_guard::run().await;
+    }
+
     if cli.init_config {
         let cfg = AgentConfig::default();
         let text = toml::to_string_pretty(&cfg)?;
@@ -77,6 +84,7 @@ async fn main() -> Result<()> {
     }
 
     match cli.command.unwrap_or(Command::Run) {
+        Command::X11RepeatGuard => unreachable!(),
         Command::Run => supervisor::run_supervisor(config).await,
         Command::Health => health::run_health_check(&config).await,
         Command::Status => health::run_status_cmd(&config).await,

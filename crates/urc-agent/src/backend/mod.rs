@@ -1,5 +1,7 @@
 //! VNC backend plugins: X11 (x0vncserver), GNOME (grd), wlroots (wayvnc).
 
+pub(crate) mod repeat_guard;
+
 mod gnome;
 mod vnc_bin;
 mod wayvnc;

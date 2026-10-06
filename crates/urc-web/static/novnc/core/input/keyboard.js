@@ -38,6 +38,12 @@ export default class Keyboard {
 
     _sendKeyEvent(keysym, code, down, numlock = null, capslock = null) {
         if (down) {
+            // URC disables X11 server-generated repeat to tolerate delayed key-up
+            // packets. Turn each client repeat into a fresh press so held keys
+            // still repeat at the viewer's rate. Other held keys stay down.
+            if (code in this._keyDownList) {
+                this.onkeyevent(this._keyDownList[code], code, false, numlock, capslock);
+            }
             this._keyDownList[code] = keysym;
         } else {
             // Do we really think this key is down?

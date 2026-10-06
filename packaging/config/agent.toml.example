@@ -8,6 +8,11 @@ listen_tls_port = 15900
 vnc_password_file = "/etc/urc/vncpasswd"
 files_root = "/home"
 
+# X11: false prevents network-delayed key releases from generating extra text.
+# Disables host hold-to-repeat while sharing (including the physical keyboard).
+# Set true to keep host repeat; remote duplicate characters may then recur.
+x11_server_key_repeat = false
+
 # encryption = "tls"  # or use --insecure CLI flag
 
 [tailscale]

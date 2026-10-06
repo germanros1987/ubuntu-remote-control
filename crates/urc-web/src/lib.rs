@@ -259,6 +259,7 @@ const WS_KEEPALIVE_SECS: u64 = 25;
 
 async fn bridge_vnc(socket: axum::extract::ws::WebSocket, vnc_port: u16) -> Result<()> {
     let tcp = TcpStream::connect(("127.0.0.1", vnc_port)).await?;
+    tcp.set_nodelay(true)?;
     let (mut tcp_r, mut tcp_w) = tcp.into_split();
     let (mut ws_tx, mut ws_rx) = socket.split();
 

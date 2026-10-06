@@ -6,7 +6,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error, SignatureScheme};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tokio_rustls::TlsConnector;
@@ -256,42 +256,18 @@ async fn pipe_session(
     connector: &TlsConnector,
     local: &mut TcpStream,
 ) -> Result<()> {
+    local.set_nodelay(true)?;
     let server_name = tls_server_name(remote_host)?;
     let remote = TcpStream::connect((remote_host, remote_port))
         .await
         .with_context(|| format!("connect to {remote_host}:{remote_port}"))?;
-    let tls = connector
+    remote.set_nodelay(true)?;
+    let mut tls = connector
         .connect(server_name, remote)
         .await
         .with_context(|| format!("TLS to {remote_host}:{remote_port}"))?;
 
-    let (mut lr, mut lw) = local.split();
-    let (mut tr, mut tw) = tokio::io::split(tls);
-
-    let l2t = async {
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = lr.read(&mut buf).await?;
-            if n == 0 {
-                break;
-            }
-            tw.write_all(&buf[..n]).await?;
-        }
-        Ok::<(), anyhow::Error>(())
-    };
-
-    let t2l = async {
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = tr.read(&mut buf).await?;
-            if n == 0 {
-                break;
-            }
-            lw.write_all(&buf[..n]).await?;
-        }
-        Ok::<(), anyhow::Error>(())
-    };
-
-    tokio::try_join!(l2t, t2l)?;
+    // Flush interactive traffic and propagate viewer EOF through TLS to VNC.
+    tokio::io::copy_bidirectional(local, &mut tls).await?;
     Ok(())
 }

@@ -33,3 +33,4 @@ urc-common.workspace = true
 urc-files.workspace = true
 urc-web.workspace = true
 uuid.workspace = true
+x11rb = { version = "0.13", features = ["xkb", "xinput"] }

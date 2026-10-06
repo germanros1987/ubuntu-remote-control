@@ -97,6 +97,9 @@ pub struct AgentConfig {
     pub tailscale: TailscaleConfig,
     pub files_root: Option<String>,
     pub backend: BackendPreference,
+    /// Allow X11 to generate repeats while sharing (can duplicate keys on slow links).
+    #[serde(default)]
+    pub x11_server_key_repeat: bool,
 }
 
 fn default_web_tls_port() -> u16 {
@@ -141,6 +144,7 @@ impl Default for AgentConfig {
             tailscale: TailscaleConfig::default(),
             files_root: Some("/home".into()),
             backend: BackendPreference::Auto,
+            x11_server_key_repeat: false,
         }
     }
 }

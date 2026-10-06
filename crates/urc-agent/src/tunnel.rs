@@ -94,15 +94,14 @@ impl TlsTunnel {
 }
 
 async fn pipe_tls_client(client: TcpStream, acceptor: TlsAcceptor, local_port: u16) -> Result<()> {
-    let tls = acceptor.accept(client).await?;
-    let upstream = TcpStream::connect(("127.0.0.1", local_port)).await?;
+    // Key releases are tiny writes: do not hold them behind unacknowledged data.
+    client.set_nodelay(true)?;
+    let mut tls = acceptor.accept(client).await?;
+    let mut upstream = TcpStream::connect(("127.0.0.1", local_port)).await?;
+    upstream.set_nodelay(true)?;
 
-    let (mut tls_read, mut tls_write) = tokio::io::split(tls);
-    let (mut up_read, mut up_write) = upstream.into_split();
-
-    let c1 = tokio::io::copy(&mut tls_read, &mut up_write);
-    let c2 = tokio::io::copy(&mut up_read, &mut tls_write);
-    tokio::try_join!(c1, c2)?;
+    // Propagate EOF to VNC so it releases held keys when the viewer closes.
+    tokio::io::copy_bidirectional(&mut tls, &mut upstream).await?;
     Ok(())
 }
 
@@ -118,4 +117,74 @@ fn generate_self_signed(cert_path: &PathBuf, key_path: &PathBuf) -> Result<()> {
     fs::write(cert_path, cert.pem())?;
     fs::write(key_path, key_pair.serialize_pem())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn forwards_key_events_and_viewer_eof_to_vnc() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(cert.cert.der().clone()).unwrap();
+        let server = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![cert.cert.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der()).into(),
+            )
+            .unwrap();
+        let client = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let acceptor = TlsAcceptor::from(Arc::new(server));
+        let connector = tokio_rustls::TlsConnector::from(Arc::new(client));
+        let vnc = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = vnc.local_addr().unwrap().port();
+        let tunnel = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = tunnel.local_addr().unwrap();
+        let worker = tokio::spawn(async move {
+            let (socket, _) = tunnel.accept().await.unwrap();
+            pipe_tls_client(socket, acceptor, port).await.unwrap();
+        });
+
+        timeout(Duration::from_secs(3), async {
+            let socket = TcpStream::connect(addr).await.unwrap();
+            let mut viewer = connector
+                .connect("localhost".try_into().unwrap(), socket)
+                .await
+                .unwrap();
+            let (mut desktop, _) = vnc.accept().await.unwrap();
+            desktop.write_all(b"RFB 003.008\n").await.unwrap();
+            let mut banner = [0; 12];
+            viewer.read_exact(&mut banner).await.unwrap();
+            assert_eq!(&banner, b"RFB 003.008\n");
+            // Real RFB key down/up packets, delivered as separate tiny writes.
+            let down = [4, 1, 0, 0, 0, 0, 0, b'a'];
+            let up = [4, 0, 0, 0, 0, 0, 0, b'a'];
+            viewer.write_all(&down).await.unwrap();
+            viewer.flush().await.unwrap();
+            let mut received = [0; 8];
+            desktop.read_exact(&mut received).await.unwrap();
+            assert_eq!(received, down);
+            viewer.write_all(&up).await.unwrap();
+            viewer.shutdown().await.unwrap();
+            let mut remaining = Vec::new();
+            // Previously hung: the joined copy loops never shut down VNC's
+            // write half when the viewer sent EOF, leaving held keys behind.
+            desktop.read_to_end(&mut remaining).await.unwrap();
+            assert_eq!(remaining, up);
+            desktop.shutdown().await.unwrap();
+            let mut trailing = Vec::new();
+            viewer.read_to_end(&mut trailing).await.unwrap();
+            assert!(trailing.is_empty());
+            worker.await.unwrap();
+        })
+        .await
+        .expect("viewer disconnect must propagate to VNC promptly");
+    }
 }
